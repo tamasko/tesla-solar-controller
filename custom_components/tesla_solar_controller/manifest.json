@@ -1,0 +1,10 @@
+{
+  "domain": "tesla_solar_controller",
+  "name": "Tesla Solar Controller",
+  "version": "0.1.0",
+  "config_flow": true,
+  "documentation": "https://github.com/tamasko/tesla-solar-controller",
+  "issue_tracker": "https://github.com/tamasko/tesla-solar-controller/issues",
+  "codeowners": ["@tamasko"],
+  "iot_class": "calculated"
+}

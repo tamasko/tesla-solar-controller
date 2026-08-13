@@ -1,0 +1,71 @@
+"""Constants for Tesla Solar Controller."""
+
+from __future__ import annotations
+
+DOMAIN = "tesla_solar_controller"
+NAME = "Tesla Solar Controller"
+VERSION = "0.1.0"
+
+PLATFORMS = ["sensor", "binary_sensor", "switch", "select"]
+
+CONF_VEHICLE_STATUS = "vehicle_status"
+CONF_WAKE_BUTTON = "wake_button"
+CONF_BATTERY_LEVEL = "battery_level"
+CONF_CHARGE_SWITCH = "charge_switch"
+CONF_CHARGE_CURRENT = "charge_current"
+CONF_CHARGE_LIMIT = "charge_limit"
+CONF_ACCESSORY_SWITCH = "accessory_switch"
+CONF_GRID_NET_POWER = "grid_net_power"
+CONF_L2_VOLTAGE = "l2_voltage"
+CONF_SOLAR_POWER = "solar_power"
+CONF_FORECAST_TOMORROW = "forecast_tomorrow"
+
+OPT_MAINTENANCE_START_SOC = "maintenance_start_soc"
+OPT_NORMAL_TARGET_SOC = "normal_target_soc"
+OPT_BUFFER_TARGET_SOC = "buffer_target_soc"
+OPT_POOR_FORECAST_THRESHOLD_KWH = "poor_forecast_threshold_kwh"
+OPT_ADAPTIVE_BUFFER_ENABLED = "adaptive_buffer_enabled"
+OPT_SOLAR_START_EXPORT_W = "solar_start_export_w"
+OPT_SOLAR_START_MINUTES = "solar_start_minutes"
+OPT_SOLAR_STEP_UP_EXPORT_W = "solar_step_up_export_w"
+OPT_GRID_STEP_DOWN_IMPORT_W = "grid_step_down_import_w"
+OPT_SOLAR_STOP_IMPORT_W = "solar_stop_import_w"
+OPT_SOLAR_STOP_MINUTES = "solar_stop_minutes"
+OPT_MIN_CURRENT_A = "min_current_a"
+OPT_OFFPEAK_CURRENT_A = "offpeak_current_a"
+OPT_MAX_CURRENT_A = "max_current_a"
+OPT_WEEKDAY_OFFPEAK_END_HOUR = "weekday_offpeak_end_hour"
+OPT_WEEKEND_OFFPEAK_END_HOUR = "weekend_offpeak_end_hour"
+OPT_EVENING_OFFPEAK_START_HOUR = "evening_offpeak_start_hour"
+OPT_NOTIFY_SERVICE = "notify_service"
+
+MODE_SOLAR_ONLY = "Solar only"
+MODE_SOLAR_OFFPEAK = "Solar + off-peak"
+MODE_ASAP = "Charge ASAP"
+MODES = [MODE_SOLAR_ONLY, MODE_SOLAR_OFFPEAK, MODE_ASAP]
+
+DEFAULT_OPTIONS = {
+    OPT_MAINTENANCE_START_SOC: 78.0,
+    OPT_NORMAL_TARGET_SOC: 80.0,
+    OPT_BUFFER_TARGET_SOC: 83.0,
+    OPT_POOR_FORECAST_THRESHOLD_KWH: 8.0,
+    OPT_ADAPTIVE_BUFFER_ENABLED: True,
+    OPT_SOLAR_START_EXPORT_W: 1350.0,
+    OPT_SOLAR_START_MINUTES: 2.0,
+    OPT_SOLAR_STEP_UP_EXPORT_W: 300.0,
+    OPT_GRID_STEP_DOWN_IMPORT_W: 150.0,
+    OPT_SOLAR_STOP_IMPORT_W: 300.0,
+    OPT_SOLAR_STOP_MINUTES: 3.0,
+    OPT_MIN_CURRENT_A: 5.0,
+    OPT_OFFPEAK_CURRENT_A: 8.0,
+    OPT_MAX_CURRENT_A: 10.0,
+    OPT_WEEKDAY_OFFPEAK_END_HOUR: 7,
+    OPT_WEEKEND_OFFPEAK_END_HOUR: 17,
+    OPT_EVENING_OFFPEAK_START_HOUR: 22,
+    OPT_NOTIFY_SERVICE: "",
+}
+
+STORAGE_VERSION = 1
+STORAGE_KEY_PREFIX = "tesla_solar_controller"
+EVALUATION_INTERVAL_SECONDS = 30
+ACCESSORY_SYNC_DELAY_SECONDS = 120

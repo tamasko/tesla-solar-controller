@@ -1,0 +1,126 @@
+{
+  "title": "Tesla Solar Controller",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Select existing Home Assistant entities",
+        "description": "This integration does not talk to Tesla directly. It controls your existing Tesla Fleet / Tesla Fleet Extra entities and your local solar/grid sensors.",
+        "data": {
+          "vehicle_status": "Tesla awake/status binary sensor",
+          "wake_button": "Tesla wake button",
+          "battery_level": "Tesla battery level sensor",
+          "charge_switch": "Tesla charge switch",
+          "charge_current": "Tesla charge-current number",
+          "charge_limit": "Tesla charge-limit number",
+          "accessory_switch": "Tesla Keep Accessory Power switch",
+          "grid_net_power": "Grid net power sensor",
+          "l2_voltage": "L2 voltage sensor",
+          "solar_power": "Solar production power sensor",
+          "forecast_tomorrow": "Estimated solar energy tomorrow (optional)"
+        },
+        "data_description": {
+          "grid_net_power": "Must be positive for grid import and negative for export, in watts.",
+          "forecast_tomorrow": "Optional Forecast.Solar 'Estimated energy production - tomorrow' sensor in kWh. Leave empty to disable forecast-aware 83% buffering."
+        }
+      },
+      "reconfigure": {
+        "title": "Change source entities",
+        "data": {
+          "vehicle_status": "Tesla awake/status binary sensor",
+          "wake_button": "Tesla wake button",
+          "battery_level": "Tesla battery level sensor",
+          "charge_switch": "Tesla charge switch",
+          "charge_current": "Tesla charge-current number",
+          "charge_limit": "Tesla charge-limit number",
+          "accessory_switch": "Tesla Keep Accessory Power switch",
+          "grid_net_power": "Grid net power sensor",
+          "l2_voltage": "L2 voltage sensor",
+          "solar_power": "Solar production power sensor",
+          "forecast_tomorrow": "Estimated solar energy tomorrow (optional)"
+        }
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "Only one Tesla Solar Controller instance is supported."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Controller settings",
+        "description": "Tune the controller without YAML. Solar surplus alone never wakes a sleeping Tesla.",
+        "data": {
+          "maintenance_start_soc": "Maintenance restart SOC (%)",
+          "normal_target_soc": "Normal target SOC (%)",
+          "buffer_target_soc": "Poor-forecast solar buffer target (%)",
+          "adaptive_buffer_enabled": "Enable forecast-aware solar buffer",
+          "poor_forecast_threshold_kwh": "Poor forecast threshold for tomorrow (kWh)",
+          "min_current_a": "Minimum charge current (A)",
+          "offpeak_current_a": "Minimum off-peak current (A)",
+          "max_current_a": "Maximum charge current (A)",
+          "solar_start_export_w": "Solar start export threshold (W)",
+          "solar_start_minutes": "Solar start hold time (minutes)",
+          "solar_step_up_export_w": "Step-up export threshold (W)",
+          "grid_step_down_import_w": "Step-down import threshold (W)",
+          "solar_stop_import_w": "Solar stop import threshold (W)",
+          "solar_stop_minutes": "Solar stop hold time (minutes)",
+          "weekday_offpeak_end_hour": "Weekday morning off-peak end hour",
+          "weekend_offpeak_end_hour": "Weekend daytime off-peak end hour",
+          "evening_offpeak_start_hour": "Evening off-peak start hour",
+          "notify_service": "Mobile notify service (optional)"
+        },
+        "data_description": {
+          "maintenance_start_soc": "Default 78%. Accessory use can trigger maintenance only at or below this SOC.",
+          "buffer_target_soc": "Default 83%. This target is only used with poor next-day forecast and enough solar surplus while the car is already awake.",
+          "notify_service": "Example: notify.mobile_app_tam14p. Leave empty to disable charging notifications."
+        }
+      }
+    }
+  },
+  "entity": {
+    "select": {
+      "charging_mode": {
+        "name": "Charging mode"
+      }
+    },
+    "switch": {
+      "accessory_power": {
+        "name": "Accessory power"
+      }
+    },
+    "sensor": {
+      "status": {
+        "name": "Status"
+      },
+      "sleep_status": {
+        "name": "Sleep status"
+      },
+      "live_charging_power": {
+        "name": "Live charging power"
+      },
+      "solar_surplus": {
+        "name": "Solar surplus available"
+      },
+      "target_soc": {
+        "name": "Target SOC"
+      },
+      "battery_level": {
+        "name": "Battery level"
+      },
+      "charge_current": {
+        "name": "Charge current"
+      },
+      "charge_limit": {
+        "name": "Charge limit"
+      }
+    },
+    "binary_sensor": {
+      "battery_maintenance": {
+        "name": "Battery maintenance"
+      },
+      "charging": {
+        "name": "Charging"
+      }
+    }
+  }
+}
