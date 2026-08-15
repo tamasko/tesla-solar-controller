@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.3
+
+- Restore HACS brand assets to `custom_components/tesla_solar_controller/brand/`.
+- No controller logic changes from 0.1.2.
+
 ## 0.1.2
 
 - Fix Home Assistant manifest key ordering for Hassfest.
