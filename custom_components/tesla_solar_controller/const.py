@@ -4,7 +4,7 @@ from __future__ import annotations
 
 DOMAIN = "tesla_solar_controller"
 NAME = "Tesla Solar Controller"
-VERSION = "0.1.0"
+VERSION = "0.1.1"
 
 PLATFORMS = ["sensor", "binary_sensor", "switch", "select"]
 

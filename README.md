@@ -54,6 +54,15 @@ The setup flow asks for:
 
 Entity IDs can differ slightly if Home Assistant has existing names; use Developer Tools → States to confirm them.
 
+## Safety and fail-safe behavior
+
+- The configured **maximum current** is enforced independently of the ESP/grid sensor whenever the Tesla exposes a valid current while awake.
+- Every charge-current command issued by this integration is clamped to that configured maximum.
+- In **Solar only**, an unavailable grid-net sensor causes charging to stop and prevents a new solar charge from starting.
+- In **Solar + off-peak**, an unavailable grid-net sensor falls back to the configured off-peak current; it does not attempt solar regulation.
+- Battery maintenance uses the configured minimum current even if the grid sensor is unavailable.
+- This is still cloud software, not a physical electrical safety limiter. Configure the vehicle/EVSE itself for any current that must never be exceeded.
+
 ## Charging modes
 
 ### Solar only

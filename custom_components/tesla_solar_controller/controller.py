@@ -407,6 +407,21 @@ class TeslaSolarController:
                 self._notify()
                 return
 
+            # Safety invariant: whenever the Tesla exposes a valid charge-current
+            # value while awake, never allow it to remain above the configured
+            # controller maximum. This is independent of the ESP/grid meter and
+            # therefore still applies if the grid sensor is unavailable.
+            if self.is_awake:
+                max_current = float(self.options[OPT_MAX_CURRENT_A])
+                actual_current = self.charge_current_a
+                if actual_current is not None and actual_current > max_current:
+                    _LOGGER.warning(
+                        "Tesla charge current %.1f A exceeds configured maximum %.1f A; clamping",
+                        actual_current,
+                        max_current,
+                    )
+                    await self._async_set_charge_current(max_current)
+
             # Keep the Tesla's actual charge limit aligned with the controller's
             # current target whenever the vehicle is already awake. This never
             # wakes a sleeping vehicle merely to change the limit.
@@ -464,16 +479,25 @@ class TeslaSolarController:
         if battery is not None and battery >= 100:
             self.status = "ASAP target reached"
             return
-        if self.is_charging and (self.charge_current_a or 0) >= float(
-            self.options[OPT_MAX_CURRENT_A]
-        ):
-            self.status = f"ASAP · Charging at {self.charge_current_a:.0f} A"
+
+        max_current = float(self.options[OPT_MAX_CURRENT_A])
+        if self.is_charging:
+            amps = self.charge_current_a
+            if self.is_awake and (amps is None or abs(amps - max_current) >= 0.1):
+                await self._async_set_charge_current(max_current)
+            shown = self.charge_current_a
+            self.status = (
+                f"ASAP · Charging at {shown:.0f} A"
+                if shown is not None
+                else "ASAP · Charging"
+            )
             return
+
         if not self._asap_wake_attempted:
             self._asap_wake_attempted = True
             await self._async_start_charge(
                 limit=100.0,
-                amps=float(self.options[OPT_MAX_CURRENT_A]),
+                amps=max_current,
                 allow_wake=True,
                 reason="ASAP",
             )
@@ -496,19 +520,23 @@ class TeslaSolarController:
                 await self._async_stop_charge_if_awake()
                 return
 
+        maintenance_current = float(self.options[OPT_MIN_CURRENT_A])
         if not self.is_charging:
             await self._async_start_charge(
                 limit=self.target_soc,
-                amps=float(self.options[OPT_MIN_CURRENT_A]),
+                amps=maintenance_current,
                 allow_wake=True,
                 reason="battery maintenance",
             )
             return
 
-        await self._async_regulate_current(
-            minimum=float(self.options[OPT_MIN_CURRENT_A]),
-            allow_stop=False,
-        )
+        # Battery maintenance is intentionally conservative and deterministic:
+        # hold the configured minimum current regardless of grid-meter state.
+        # This prevents a missing ESP/grid sensor from leaving the Tesla at a
+        # previously higher current.
+        amps = self.charge_current_a
+        if self.is_awake and (amps is None or abs(amps - maintenance_current) >= 0.1):
+            await self._async_set_charge_current(maintenance_current)
 
     async def _async_handle_offpeak(
         self, battery: float | None, normal_target: float
@@ -554,8 +582,22 @@ class TeslaSolarController:
             )
             return
 
+        offpeak_current = min(
+            float(self.options[OPT_OFFPEAK_CURRENT_A]),
+            float(self.options[OPT_MAX_CURRENT_A]),
+        )
+
+        # If the grid meter is unavailable, off-peak charging may continue, but
+        # only at the known-safe off-peak current. Do not leave a stale/higher
+        # current in place when solar contribution cannot be measured.
+        if self.grid_net_power_w is None:
+            amps = self.charge_current_a
+            if self.is_awake and (amps is None or abs(amps - offpeak_current) >= 0.1):
+                await self._async_set_charge_current(offpeak_current)
+            return
+
         await self._async_regulate_current(
-            minimum=float(self.options[OPT_OFFPEAK_CURRENT_A]),
+            minimum=offpeak_current,
             allow_stop=False,
         )
 
@@ -564,6 +606,15 @@ class TeslaSolarController:
     ) -> None:
         # Hard sleep-protection rule: solar surplus alone never wakes the Tesla.
         if not self.is_awake:
+            return
+
+        # Fail closed if the grid meter/ESP is unavailable. Solar-only mode
+        # cannot know whether energy is actually surplus without grid-net power,
+        # so an existing solar charge is stopped and a new one is never started.
+        if self.grid_net_power_w is None:
+            if self.is_charging:
+                await self._async_stop_charge_if_awake()
+            self.status = "Grid meter unavailable · Solar charging stopped"
             return
 
         buffer_target = float(self.options[OPT_BUFFER_TARGET_SOC])
@@ -724,9 +775,10 @@ class TeslaSolarController:
             # lag behind the app even when the car is already awake.
             _LOGGER.debug("Vehicle status still stale after wake for %s", reason)
 
+        safe_amps = min(float(amps), float(self.options[OPT_MAX_CURRENT_A]))
         async with self._command_lock:
             await self._call_number(self.data[CONF_CHARGE_LIMIT], limit)
-            await self._call_number(self.data[CONF_CHARGE_CURRENT], amps)
+            await self._call_number(self.data[CONF_CHARGE_CURRENT], safe_amps)
             self._last_current_adjustment = dt_util.utcnow()
             await self._call("switch", "turn_on", self.data[CONF_CHARGE_SWITCH])
         self.status = f"Starting charge · {reason}"
@@ -754,8 +806,9 @@ class TeslaSolarController:
     async def _async_set_charge_current(self, amps: float) -> None:
         if not self.is_awake:
             return
+        safe_amps = min(float(amps), float(self.options[OPT_MAX_CURRENT_A]))
         async with self._command_lock:
-            await self._call_number(self.data[CONF_CHARGE_CURRENT], amps)
+            await self._call_number(self.data[CONF_CHARGE_CURRENT], safe_amps)
             self._last_current_adjustment = dt_util.utcnow()
 
     async def _async_wake_vehicle(self) -> None:
