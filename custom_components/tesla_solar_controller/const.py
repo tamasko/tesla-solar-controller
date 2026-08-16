@@ -4,7 +4,7 @@ from __future__ import annotations
 
 DOMAIN = "tesla_solar_controller"
 NAME = "Tesla Solar Controller"
-VERSION = "0.1.1"
+VERSION = "0.1.6"
 
 PLATFORMS = ["sensor", "binary_sensor", "switch", "select"]
 
@@ -12,6 +12,7 @@ CONF_VEHICLE_STATUS = "vehicle_status"
 CONF_WAKE_BUTTON = "wake_button"
 CONF_BATTERY_LEVEL = "battery_level"
 CONF_CHARGE_SWITCH = "charge_switch"
+CONF_CHARGE_CABLE = "charge_cable"
 CONF_CHARGE_CURRENT = "charge_current"
 CONF_CHARGE_LIMIT = "charge_limit"
 CONF_ACCESSORY_SWITCH = "accessory_switch"
@@ -26,6 +27,8 @@ OPT_BUFFER_TARGET_SOC = "buffer_target_soc"
 OPT_POOR_FORECAST_THRESHOLD_KWH = "poor_forecast_threshold_kwh"
 OPT_ADAPTIVE_BUFFER_ENABLED = "adaptive_buffer_enabled"
 OPT_SOLAR_START_EXPORT_W = "solar_start_export_w"
+OPT_SOLAR_WAKE_DELTA_SOC = "solar_wake_delta_soc"
+OPT_RECENT_PLUG_WINDOW_MINUTES = "recent_plug_window_minutes"
 OPT_SOLAR_START_MINUTES = "solar_start_minutes"
 OPT_SOLAR_STEP_UP_EXPORT_W = "solar_step_up_export_w"
 OPT_GRID_STEP_DOWN_IMPORT_W = "grid_step_down_import_w"
@@ -51,6 +54,8 @@ DEFAULT_OPTIONS = {
     OPT_POOR_FORECAST_THRESHOLD_KWH: 8.0,
     OPT_ADAPTIVE_BUFFER_ENABLED: True,
     OPT_SOLAR_START_EXPORT_W: 1350.0,
+    OPT_SOLAR_WAKE_DELTA_SOC: 3.0,
+    OPT_RECENT_PLUG_WINDOW_MINUTES: 10.0,
     OPT_SOLAR_START_MINUTES: 2.0,
     OPT_SOLAR_STEP_UP_EXPORT_W: 300.0,
     OPT_GRID_STEP_DOWN_IMPORT_W: 150.0,

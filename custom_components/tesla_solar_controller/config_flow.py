@@ -22,6 +22,7 @@ from homeassistant.helpers.selector import (
 from .const import (
     CONF_ACCESSORY_SWITCH,
     CONF_BATTERY_LEVEL,
+    CONF_CHARGE_CABLE,
     CONF_CHARGE_CURRENT,
     CONF_CHARGE_LIMIT,
     CONF_CHARGE_SWITCH,
@@ -44,7 +45,9 @@ from .const import (
     OPT_NOTIFY_SERVICE,
     OPT_OFFPEAK_CURRENT_A,
     OPT_POOR_FORECAST_THRESHOLD_KWH,
+    OPT_RECENT_PLUG_WINDOW_MINUTES,
     OPT_SOLAR_START_EXPORT_W,
+    OPT_SOLAR_WAKE_DELTA_SOC,
     OPT_SOLAR_START_MINUTES,
     OPT_SOLAR_STEP_UP_EXPORT_W,
     OPT_SOLAR_STOP_IMPORT_W,
@@ -81,6 +84,7 @@ def _entity_schema(suggested: dict[str, str] | None = None) -> vol.Schema:
         _required_entity(CONF_WAKE_BUTTON, "button", suggested),
         _required_entity(CONF_BATTERY_LEVEL, "sensor", suggested),
         _required_entity(CONF_CHARGE_SWITCH, "switch", suggested),
+        _required_entity(CONF_CHARGE_CABLE, "binary_sensor", suggested),
         _required_entity(CONF_CHARGE_CURRENT, "number", suggested),
         _required_entity(CONF_CHARGE_LIMIT, "number", suggested),
         _required_entity(CONF_ACCESSORY_SWITCH, "switch", suggested),
@@ -98,6 +102,7 @@ def _suggested_entities(hass) -> dict[str, str]:
         CONF_WAKE_BUTTON: "button.tesla_model_y_wake",
         CONF_BATTERY_LEVEL: "sensor.tesla_model_y_battery_level",
         CONF_CHARGE_SWITCH: "switch.tesla_model_y_charge",
+        CONF_CHARGE_CABLE: "binary_sensor.tesla_model_y_charge_cable",
         CONF_CHARGE_CURRENT: "number.tesla_model_y_charge_current",
         CONF_CHARGE_LIMIT: "number.tesla_model_y_charge_limit",
         CONF_ACCESSORY_SWITCH: "switch.all_house_tesla_model_y_keep_accessory_power_on",
@@ -205,6 +210,16 @@ class TeslaSolarControllerOptionsFlow(config_entries.OptionsFlow):
                     OPT_SOLAR_START_EXPORT_W,
                     description={"suggested_value": options[OPT_SOLAR_START_EXPORT_W]},
                 ): _num(0, 10000, 50),
+                vol.Required(
+                    OPT_SOLAR_WAKE_DELTA_SOC,
+                    description={"suggested_value": options[OPT_SOLAR_WAKE_DELTA_SOC]},
+                ): _num(0, 20, 1),
+                vol.Required(
+                    OPT_RECENT_PLUG_WINDOW_MINUTES,
+                    description={
+                        "suggested_value": options[OPT_RECENT_PLUG_WINDOW_MINUTES]
+                    },
+                ): _num(0, 60, 1),
                 vol.Required(
                     OPT_SOLAR_START_MINUTES,
                     description={"suggested_value": options[OPT_SOLAR_START_MINUTES]},

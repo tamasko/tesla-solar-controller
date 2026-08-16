@@ -1,4 +1,20 @@
-# Migration from the YAML/automation controller
+# Migration
+
+## v0.1.5 → v0.1.6
+
+After updating, make sure **Settings → Devices & services → Tesla Solar Controller → Reconfigure** has the Tesla Fleet **Charge cable** binary sensor selected.
+
+New behavior:
+
+- A real OFF→ON plug-in opens a short immediate solar-start window (default 10 minutes).
+- During that window, sufficient export can start charging immediately to the configured **Normal target SOC**.
+- After the window expires, new solar sessions use the configured SOC hysteresis restart threshold.
+- The normal target is not hard-coded at 80%; changing it in the integration options changes all of these decisions.
+
+## v0.1.3 → v0.1.4
+
+After updating, open **Settings → Devices & services → Tesla Solar Controller → Reconfigure** and select the Tesla Fleet **Charge cable** binary sensor. This is recommended so a fresh physical plug-in can authorize one solar-start wake without weakening normal sleep protection.
+
 
 Do **not** delete the old controller until the custom integration has loaded and the GitHub validation checks have passed.
 
@@ -38,7 +54,7 @@ Test these actions before deleting anything old:
 
 1. Toggle the new **Accessory power** switch ON once while the car is sleeping. It should remain requested ON, wake the car, and eventually confirm the real Tesla setting.
 2. Toggle it OFF once. It must stay OFF and must not bounce back ON.
-3. Select **Solar only**. A sleeping Tesla must remain asleep even if grid export exceeds the solar-start threshold.
+3. Select **Solar only**. A freshly plugged Tesla below target may start immediately when export is sufficient; after the fresh-plug window, a new session should start only when SOC is at or below the configured hysteresis restart threshold.
 4. With the vehicle already awake and sufficient export, solar charging may start at the configured minimum current and regulate upward/downward.
 5. If the battery is at or below the maintenance threshold and accessory power is requested, maintenance may wake the car and charge toward the target.
 

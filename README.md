@@ -14,7 +14,8 @@ A Home Assistant custom integration that coordinates an existing Tesla Fleet / T
 - 78% maintenance restart hysteresis
 - Normal target 80%
 - Optional poor-next-day-forecast solar buffer to 83%
-- Hard sleep protection: **solar surplus alone never wakes a sleeping Tesla**
+- Fresh plug-in intent: when newly plugged in and sufficient solar export already exists, charge immediately toward the configured normal target
+- Long-term SOC hysteresis: after the fresh plug-in window, new solar sessions start only when SOC is sufficiently below target
 - Optional mobile charging notifications
 
 ## Important architecture
@@ -29,6 +30,7 @@ The setup flow asks for:
 - Tesla wake button
 - Tesla battery level
 - Tesla charge switch
+- Tesla charge-cable connected binary sensor (recommended; required for fresh plug-in behavior)
 - Tesla charge-current number
 - Tesla charge-limit number
 - Tesla Keep Accessory Power switch
@@ -67,9 +69,15 @@ Entity IDs can differ slightly if Home Assistant has existing names; use Develop
 
 ### Solar only
 
-- Uses solar surplus while the vehicle is already awake.
-- Regulates current between minimum and maximum configured current.
-- Solar surplus **never** wakes a sleeping Tesla.
+- Uses solar surplus and regulates current between the configured minimum and maximum.
+- A real charge-cable OFF→ON transition opens the configurable **Fresh plug-in solar-start window** (default 10 minutes).
+- During that fresh window, if SOC is below the configured **Normal target SOC** and export already exceeds the solar-start threshold, charging starts immediately with no hold delay, even if the car has already fallen asleep.
+- The target is always the configured **Normal target SOC** (80% is only the default, not a hard-coded value).
+- If there is not enough solar at plug-in, the controller waits during the fresh window and starts immediately if sufficient export appears before the window expires.
+- After the fresh window, new solar sessions use SOC hysteresis: the restart threshold is normal target minus **Solar wake SOC hysteresis**.
+- Default example: normal target 80%, hysteresis 3 points -> a long-plugged car at 79/78% does not restart; 77% or lower can restart after the normal sustained-solar hold.
+- If a cloudy day only charges 65% -> 70%, the next sufficiently sunny period can automatically wake the car and continue toward the configured normal target.
+- Once a solar session is already running, it can continue toward target; hysteresis is for starting/restarting sessions, not for prematurely stopping an active one.
 
 ### Solar + off-peak
 
@@ -95,7 +103,7 @@ Default behavior:
 - If tomorrow's solar forecast is poor **and** enough surplus is available while the Tesla is already awake, the target can extend to 83%.
 - Above 80%, the controller will not buy grid power merely to reach 83%.
 - Once the target is reached, charging stops and the Tesla is allowed to sleep.
-- Later solar surplus does not wake it just to add a few percent.
+- A fresh physical plug-in can start an immediate solar session below the configured normal target; later restarts use the configured SOC hysteresis band.
 
 ## Installation via HACS custom repository
 
@@ -110,4 +118,4 @@ Default behavior:
 
 ## Development status
 
-This is an initial v0.1.0 tailored to a single Tesla and a single-phase AC charging setup. Test carefully before relying on it unattended.
+This is a beta integration tailored to a single Tesla and a single-phase AC charging setup. Test carefully before relying on it unattended.

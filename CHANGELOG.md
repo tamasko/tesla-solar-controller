@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.1.6 — 2026-08-16
+
+- Combine fresh plug-in intent with long-term SOC hysteresis.
+- A real charge-cable OFF→ON transition opens a configurable **Fresh plug-in solar-start window** (default 10 minutes).
+- During that window, if SOC is below the configured **Normal target SOC** and grid export already exceeds the configured solar-start threshold, charging starts immediately with no solar hold delay, even if the Tesla has already fallen asleep.
+- The plug-in target is the HACS-configured **Normal target SOC**; no 80% value is hard-coded.
+- After the fresh plug-in window expires, any new solar session requires SOC to be at or below the configured hysteresis restart threshold and sustained solar export.
+- The same hysteresis now applies to new solar starts even if the Tesla happens to be awake, preventing nuisance 79→80% restarts long after plug-in.
+- Keep partially completed sessions resumable on later sunny periods/days when SOC is meaningfully below target.
+
+## 0.1.5 — 2026-08-16
+
+- Replace the one-time recent-plug solar wake rule with configurable SOC hysteresis.
+- Add **Solar wake SOC hysteresis** option (default 3 percentage points).
+- With the default 80% target, a sleeping Tesla stays asleep at 78-79% but may wake at 77% or lower once the solar-start threshold has been sustained.
+- Allow partially completed solar sessions to resume automatically on a later sunny period/day, e.g. 65% -> 70% on a cloudy day and 70% -> 80% the next day.
+- Keep the charge-cable sensor as optional diagnostic telemetry; it no longer gates solar wake behavior.
+- Expose `solar_wake_delta_soc` and `solar_wake_threshold_soc` as status-sensor attributes for diagnostics.
+
+## 0.1.4
+
+- Add optional Tesla charge-cable binary sensor to the setup/reconfigure flow.
+- Treat a fresh physical plug-in as explicit user intent for one 10-minute solar-start wake window.
+- Fix the case where a newly plugged Tesla could fall asleep during the 2-minute solar hold time and therefore never start charging.
+- Preserve the core rule that ordinary solar surplus does not wake an already sleeping vehicle.
+- Remove duplicate `Sleeping` wording from the controller status.
+- Fix source-state cache refresh to use the existing `_refresh_cached_values()` method.
+
 ## 0.1.3
 
 - Restore HACS brand assets to `custom_components/tesla_solar_controller/brand/`.

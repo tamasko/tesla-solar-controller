@@ -18,6 +18,7 @@ from .const import (
     ACCESSORY_SYNC_DELAY_SECONDS,
     CONF_ACCESSORY_SWITCH,
     CONF_BATTERY_LEVEL,
+    CONF_CHARGE_CABLE,
     CONF_CHARGE_CURRENT,
     CONF_CHARGE_LIMIT,
     CONF_CHARGE_SWITCH,
@@ -45,7 +46,9 @@ from .const import (
     OPT_NOTIFY_SERVICE,
     OPT_OFFPEAK_CURRENT_A,
     OPT_POOR_FORECAST_THRESHOLD_KWH,
+    OPT_RECENT_PLUG_WINDOW_MINUTES,
     OPT_SOLAR_START_EXPORT_W,
+    OPT_SOLAR_WAKE_DELTA_SOC,
     OPT_SOLAR_START_MINUTES,
     OPT_SOLAR_STEP_UP_EXPORT_W,
     OPT_SOLAR_STOP_IMPORT_W,
@@ -92,6 +95,8 @@ class TeslaSolarController:
         self._last_current_adjustment: datetime | None = None
         self._last_charge_start_attempt: datetime | None = None
         self._last_charge_stop_attempt: datetime | None = None
+        self._charge_cable_connected: bool | None = None
+        self._recent_plug_at: datetime | None = None
 
         self._charging_notified = False
         self._charging_start_candidate: datetime | None = None
@@ -121,6 +126,8 @@ class TeslaSolarController:
             CONF_L2_VOLTAGE,
             CONF_SOLAR_POWER,
         ]
+        if self.data.get(CONF_CHARGE_CABLE):
+            keys.append(CONF_CHARGE_CABLE)
         if self.data.get(CONF_FORECAST_TOMORROW):
             keys.append(CONF_FORECAST_TOMORROW)
         return [self.data[key] for key in keys if self.data.get(key)]
@@ -143,6 +150,11 @@ class TeslaSolarController:
         if isinstance(limit, (int, float)):
             self.last_charge_limit_pct = float(limit)
         self._refresh_cached_values()
+        cable_state = self._state(self.data.get(CONF_CHARGE_CABLE))
+        if cable_state == "on":
+            self._charge_cable_connected = True
+        elif cable_state == "off":
+            self._charge_cable_connected = False
         self._update_status()
 
     async def async_start(self) -> None:
@@ -241,7 +253,16 @@ class TeslaSolarController:
 
     @callback
     def _async_source_state_changed(self, event: Event) -> None:
-        self._refresh_cached_battery()
+        self._refresh_cached_values()
+
+        entity_id = event.data.get("entity_id")
+        if entity_id == self.data.get(CONF_CHARGE_CABLE):
+            old_state_obj = event.data.get("old_state")
+            new_state_obj = event.data.get("new_state")
+            old_state = old_state_obj.state if old_state_obj is not None else None
+            new_state = new_state_obj.state if new_state_obj is not None else None
+            self._handle_charge_cable_change(old_state, new_state)
+
         self._schedule_evaluate("source_state_changed")
 
     @callback
@@ -255,6 +276,64 @@ class TeslaSolarController:
         self._evaluate_task = self.hass.async_create_task(
             self.async_evaluate(reason), "tesla_solar_controller_evaluate"
         )
+
+    @callback
+    def _handle_charge_cable_change(
+        self, old_state: str | None, new_state: str | None
+    ) -> None:
+        """Track physical cable connection and a short explicit-intent window.
+
+        Only a real OFF -> ON transition counts as a fresh plug-in. An existing
+        plugged-in car seen during Home Assistant startup/reload does not receive
+        a new plug-in window.
+        """
+        if new_state == "on":
+            self._charge_cable_connected = True
+            if old_state == "off":
+                self._recent_plug_at = dt_util.utcnow()
+        elif new_state == "off":
+            self._charge_cable_connected = False
+            self._recent_plug_at = None
+
+    @property
+    def charge_cable_connected(self) -> bool | None:
+        return self._charge_cable_connected
+
+
+    @property
+    def recent_plug_window_minutes(self) -> float:
+        """Configured duration of the fresh plug-in solar-start window."""
+        return max(0.0, float(self.options[OPT_RECENT_PLUG_WINDOW_MINUTES]))
+
+    @property
+    def recent_plug_active(self) -> bool:
+        """Whether a real physical plug-in happened recently enough to count as intent."""
+        if not self._charge_cable_connected or self._recent_plug_at is None:
+            return False
+        elapsed = (dt_util.utcnow() - self._recent_plug_at).total_seconds()
+        return elapsed <= self.recent_plug_window_minutes * 60
+
+    def _instant_solar_start_ready(self) -> bool:
+        """Return True when current export is already enough to start at minimum current.
+
+        Unlike the normal solar-start rule, this intentionally has no hold time.
+        It is used only during the short fresh plug-in window.
+        """
+        grid = self.grid_net_power_w
+        if grid is None:
+            return False
+        return grid <= -float(self.options[OPT_SOLAR_START_EXPORT_W])
+
+    @property
+    def solar_wake_delta_soc(self) -> float:
+        """Configured SOC gap below normal target required for a solar wake."""
+        return max(0.0, float(self.options[OPT_SOLAR_WAKE_DELTA_SOC]))
+
+    @property
+    def solar_wake_threshold_soc(self) -> float:
+        """SOC at or below which solar is allowed to wake a sleeping Tesla."""
+        normal_target = float(self.options[OPT_NORMAL_TARGET_SOC])
+        return max(0.0, normal_target - self.solar_wake_delta_soc)
 
     def _state(self, entity_id: str | None) -> str | None:
         if not entity_id:
@@ -604,8 +683,46 @@ class TeslaSolarController:
     async def _async_handle_solar_only(
         self, battery: float | None, normal_target: float
     ) -> None:
-        # Hard sleep-protection rule: solar surplus alone never wakes the Tesla.
+        # A fresh physical plug-in is explicit user intent. During the configured
+        # short plug window, if the battery is below the configured normal target
+        # and export is already sufficient, start immediately with no 2-minute
+        # solar hold. This applies even if the Tesla has already fallen asleep.
+        # The target here is never hard-coded: it is OPT_NORMAL_TARGET_SOC.
+        if (
+            not self.is_charging
+            and self.recent_plug_active
+            and battery is not None
+            and battery < normal_target
+            and self._instant_solar_start_ready()
+        ):
+            await self._async_start_charge(
+                limit=normal_target,
+                amps=float(self.options[OPT_MIN_CURRENT_A]),
+                allow_wake=True,
+                reason=f"fresh plug-in solar to {normal_target:.0f}%",
+            )
+            return
+
+        # Once the fresh plug-in window has expired, new solar sessions use SOC
+        # hysteresis. This applies whether the Tesla happens to be awake or asleep:
+        # being merely 1-2 points below target must not repeatedly restart charging.
+        # Example with target 80% and delta 3%: 79/78% -> no new solar session;
+        # 77% or lower + sustained export -> resume charging automatically.
         if not self.is_awake:
+            if (
+                battery is not None
+                and battery <= self.solar_wake_threshold_soc
+                and self._solar_start_ready()
+            ):
+                await self._async_start_charge(
+                    limit=normal_target,
+                    amps=float(self.options[OPT_MIN_CURRENT_A]),
+                    allow_wake=True,
+                    reason=(
+                        f"solar wake at {battery:.0f}% "
+                        f"(threshold {self.solar_wake_threshold_soc:.0f}%)"
+                    ),
+                )
             return
 
         # Fail closed if the grid meter/ESP is unavailable. Solar-only mode
@@ -619,8 +736,9 @@ class TeslaSolarController:
 
         buffer_target = float(self.options[OPT_BUFFER_TARGET_SOC])
 
-        # Optional poor-forecast buffer from 80 to 83: only while already awake,
-        # only with accessory use enabled, and only with enough real surplus.
+        # Optional poor-forecast buffer from the configured normal target to the
+        # configured buffer target: only while already awake, only with accessory
+        # use enabled, and only with enough real surplus.
         if battery is not None and battery >= normal_target:
             if battery < buffer_target and self._buffer_eligible():
                 if not self.is_charging:
@@ -646,12 +764,18 @@ class TeslaSolarController:
             )
             return
 
+        # After the recent plug window, do not start a new session merely because
+        # the vehicle happens to be awake. Require the same SOC hysteresis used for
+        # waking a sleeping car.
+        if battery is None or battery > self.solar_wake_threshold_soc:
+            return
+
         if self._solar_start_ready():
             await self._async_start_charge(
-                limit=self.target_soc,
+                limit=normal_target,
                 amps=float(self.options[OPT_MIN_CURRENT_A]),
                 allow_wake=False,
-                reason="solar surplus",
+                reason="solar surplus below restart threshold",
             )
 
     async def _async_regulate_current(self, minimum: float, allow_stop: bool) -> None:
@@ -927,7 +1051,10 @@ class TeslaSolarController:
             accessory = "Accessory OFF pending"
         else:
             accessory = "Accessory OFF"
-        return f"{self.status} · {accessory} · {self.sleep_status}"
+        parts = [self.status, accessory]
+        if self.sleep_status.lower() not in self.status.lower():
+            parts.append(self.sleep_status)
+        return " · ".join(parts)
 
     def _update_status(self) -> None:
         battery = self.last_battery_pct
@@ -971,8 +1098,36 @@ class TeslaSolarController:
             )
             return
 
+        if (
+            not self.is_charging
+            and self.recent_plug_active
+            and battery is not None
+            and battery < float(self.options[OPT_NORMAL_TARGET_SOC])
+        ):
+            normal_target = float(self.options[OPT_NORMAL_TARGET_SOC])
+            if self._instant_solar_start_ready():
+                self.status = f"Fresh plug-in · Solar ready · Starting to {normal_target:.0f}%"
+            else:
+                self.status = f"Fresh plug-in · Waiting for solar · Target {normal_target:.0f}%"
+            return
+
         if self.sleep_status == "Sleeping":
-            self.status = "Sleeping · Solar will not wake vehicle"
+            if battery is not None and battery <= self.solar_wake_threshold_soc:
+                if self._solar_start_ready():
+                    self.status = (
+                        f"Sleeping · Solar ready · waking below "
+                        f"{self.solar_wake_threshold_soc:.0f}%"
+                    )
+                else:
+                    self.status = (
+                        f"Sleeping · Waiting for solar · wake at ≤"
+                        f"{self.solar_wake_threshold_soc:.0f}%"
+                    )
+            else:
+                self.status = (
+                    f"Sleeping · SOC hysteresis · wake at ≤"
+                    f"{self.solar_wake_threshold_soc:.0f}%"
+                )
             return
 
         if battery is not None and battery >= float(self.options[OPT_NORMAL_TARGET_SOC]):
@@ -982,7 +1137,16 @@ class TeslaSolarController:
                 self.status = "Target reached · Waiting"
             return
 
-        if self._solar_start_ready():
+        if (
+            battery is not None
+            and battery > self.solar_wake_threshold_soc
+            and battery < float(self.options[OPT_NORMAL_TARGET_SOC])
+        ):
+            self.status = (
+                f"Waiting · SOC hysteresis · restart at ≤"
+                f"{self.solar_wake_threshold_soc:.0f}%"
+            )
+        elif self._solar_start_ready():
             self.status = "Solar ready · Starting charge"
         elif self.solar_surplus_available_w > 0:
             required = max(

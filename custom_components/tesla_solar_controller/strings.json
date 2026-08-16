@@ -16,11 +16,13 @@
           "grid_net_power": "Grid net power sensor",
           "l2_voltage": "L2 voltage sensor",
           "solar_power": "Solar production power sensor",
-          "forecast_tomorrow": "Estimated solar energy tomorrow (optional)"
+          "forecast_tomorrow": "Estimated solar energy tomorrow (optional)",
+          "charge_cable": "Tesla charge-cable connected binary sensor"
         },
         "data_description": {
           "grid_net_power": "Must be positive for grid import and negative for export, in watts.",
-          "forecast_tomorrow": "Optional Forecast.Solar 'Estimated energy production - tomorrow' sensor in kWh. Leave empty to disable forecast-aware 83% buffering."
+          "forecast_tomorrow": "Optional Forecast.Solar 'Estimated energy production - tomorrow' sensor in kWh. Leave empty to disable forecast-aware 83% buffering.",
+          "charge_cable": "Used to detect a real physical OFF→ON plug-in. This gives a short immediate solar-start window; HA startup/reload while already plugged in does not count."
         }
       },
       "reconfigure": {
@@ -36,7 +38,11 @@
           "grid_net_power": "Grid net power sensor",
           "l2_voltage": "L2 voltage sensor",
           "solar_power": "Solar production power sensor",
-          "forecast_tomorrow": "Estimated solar energy tomorrow (optional)"
+          "forecast_tomorrow": "Estimated solar energy tomorrow (optional)",
+          "charge_cable": "Tesla charge-cable connected binary sensor"
+        },
+        "data_description": {
+          "charge_cable": "Used to detect a real physical OFF→ON plug-in. This gives a short immediate solar-start window; HA startup/reload while already plugged in does not count."
         }
       }
     },
@@ -48,7 +54,7 @@
     "step": {
       "init": {
         "title": "Controller settings",
-        "description": "Tune the controller without YAML. Solar surplus alone never wakes a sleeping Tesla.",
+        "description": "Tune the controller without YAML. A fresh physical plug-in can start solar charging immediately; later restarts use SOC hysteresis.",
         "data": {
           "maintenance_start_soc": "Maintenance restart SOC (%)",
           "normal_target_soc": "Normal target SOC (%)",
@@ -59,6 +65,7 @@
           "offpeak_current_a": "Minimum off-peak current (A)",
           "max_current_a": "Maximum charge current (A)",
           "solar_start_export_w": "Solar start export threshold (W)",
+          "solar_wake_delta_soc": "Solar wake SOC hysteresis (percentage points)",
           "solar_start_minutes": "Solar start hold time (minutes)",
           "solar_step_up_export_w": "Step-up export threshold (W)",
           "grid_step_down_import_w": "Step-down import threshold (W)",
@@ -67,12 +74,15 @@
           "weekday_offpeak_end_hour": "Weekday morning off-peak end hour",
           "weekend_offpeak_end_hour": "Weekend daytime off-peak end hour",
           "evening_offpeak_start_hour": "Evening off-peak start hour",
-          "notify_service": "Mobile notify service (optional)"
+          "notify_service": "Mobile notify service (optional)",
+          "recent_plug_window_minutes": "Fresh plug-in solar-start window (minutes)"
         },
         "data_description": {
           "maintenance_start_soc": "Default 78%. Accessory use can trigger maintenance only at or below this SOC.",
           "buffer_target_soc": "Default 83%. This target is only used with poor next-day forecast and enough solar surplus while the car is already awake.",
-          "notify_service": "Example: notify.mobile_app_tam14p. Leave empty to disable charging notifications."
+          "notify_service": "Example: notify.mobile_app_tam14p. Leave empty to disable charging notifications.",
+          "solar_wake_delta_soc": "Default 3 points. Outside the fresh plug-in window, with an 80% normal target, new solar charging may start at 77% or lower, but not at 78-79%.",
+          "recent_plug_window_minutes": "Default 10 minutes. During this window, a real OFF→ON cable connection may start charging immediately when export is already sufficient and SOC is below the configured normal target. Afterward, SOC hysteresis governs new solar starts."
         }
       }
     }
