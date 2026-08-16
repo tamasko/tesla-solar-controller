@@ -39,6 +39,7 @@ from .const import (
     OPT_EVENING_OFFPEAK_START_HOUR,
     OPT_GRID_STEP_DOWN_IMPORT_W,
     OPT_MAINTENANCE_START_SOC,
+    OPT_MIN_SOLAR_PRODUCTION_W,
     OPT_MAX_CURRENT_A,
     OPT_MIN_CURRENT_A,
     OPT_NORMAL_TARGET_SOC,
@@ -210,6 +211,12 @@ class TeslaSolarControllerOptionsFlow(config_entries.OptionsFlow):
                     OPT_SOLAR_START_EXPORT_W,
                     description={"suggested_value": options[OPT_SOLAR_START_EXPORT_W]},
                 ): _num(0, 10000, 50),
+                vol.Required(
+                    OPT_MIN_SOLAR_PRODUCTION_W,
+                    description={
+                        "suggested_value": options[OPT_MIN_SOLAR_PRODUCTION_W]
+                    },
+                ): _num(1, 10000, 1),
                 vol.Required(
                     OPT_SOLAR_WAKE_DELTA_SOC,
                     description={"suggested_value": options[OPT_SOLAR_WAKE_DELTA_SOC]},

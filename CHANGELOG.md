@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.7 — 2026-08-16
+
+- Add a two-sensor safeguard for every solar start/wake decision.
+- Require both configured grid export and measured solar production before fresh-plug or SOC-hysteresis solar charging may start.
+- Add **Minimum solar production for solar start** option (default 300 W).
+- If the solar-production sensor is unavailable or below the configured minimum, solar-only logic cannot wake/start the Tesla even if the grid sensor reports export.
+- Keep solar-stop protection grid-based so sustained import can still stop an active minimum-current charge if the solar sensor becomes unavailable.
+- Add VS Code project settings so a successful VS Code commit automatically pushes to the configured Git remote.
+- Add repository-level `AGENTS.md` instructions so Codex consistently preserves charging safety invariants and the release workflow.
+
 ## 0.1.6 — 2026-08-16
 
 - Combine fresh plug-in intent with long-term SOC hysteresis.

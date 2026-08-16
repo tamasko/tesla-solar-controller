@@ -40,6 +40,7 @@ from .const import (
     OPT_EVENING_OFFPEAK_START_HOUR,
     OPT_GRID_STEP_DOWN_IMPORT_W,
     OPT_MAINTENANCE_START_SOC,
+    OPT_MIN_SOLAR_PRODUCTION_W,
     OPT_MAX_CURRENT_A,
     OPT_MIN_CURRENT_A,
     OPT_NORMAL_TARGET_SOC,
@@ -320,9 +321,18 @@ class TeslaSolarController:
         It is used only during the short fresh plug-in window.
         """
         grid = self.grid_net_power_w
-        if grid is None:
+        if grid is None or not self._solar_production_ready():
             return False
         return grid <= -float(self.options[OPT_SOLAR_START_EXPORT_W])
+
+    def _solar_production_ready(self) -> bool:
+        """Return whether measured solar is positive and meets the start minimum."""
+        solar = self.solar_power_w
+        return (
+            solar is not None
+            and solar > 0
+            and solar >= float(self.options[OPT_MIN_SOLAR_PRODUCTION_W])
+        )
 
     @property
     def solar_wake_delta_soc(self) -> float:
@@ -527,16 +537,27 @@ class TeslaSolarController:
     def _update_solar_timers(self) -> None:
         now = dt_util.utcnow()
         grid = self.grid_net_power_w
+
+        # Solar starts/wakes use two independent measurements. A negative grid
+        # reading alone is never enough: the configured solar-production sensor
+        # must also report meaningful generation. This prevents an erroneous
+        # nighttime export reading from waking the Tesla.
         if grid is None:
             self._solar_export_since = None
             self._solar_import_since = None
             return
 
-        if grid <= -float(self.options[OPT_SOLAR_START_EXPORT_W]):
+        if (
+            self._solar_production_ready()
+            and grid <= -float(self.options[OPT_SOLAR_START_EXPORT_W])
+        ):
             self._solar_export_since = self._solar_export_since or now
         else:
             self._solar_export_since = None
 
+        # Stopping an active solar charge remains grid-based. Even if the solar
+        # sensor is temporarily unavailable, sustained grid import can still
+        # safely stop a minimum-current session.
         if grid >= float(self.options[OPT_SOLAR_STOP_IMPORT_W]):
             self._solar_import_since = self._solar_import_since or now
         else:

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 DOMAIN = "tesla_solar_controller"
 NAME = "Tesla Solar Controller"
-VERSION = "0.1.6"
+VERSION = "0.1.7"
 
 PLATFORMS = ["sensor", "binary_sensor", "switch", "select"]
 
@@ -27,6 +27,7 @@ OPT_BUFFER_TARGET_SOC = "buffer_target_soc"
 OPT_POOR_FORECAST_THRESHOLD_KWH = "poor_forecast_threshold_kwh"
 OPT_ADAPTIVE_BUFFER_ENABLED = "adaptive_buffer_enabled"
 OPT_SOLAR_START_EXPORT_W = "solar_start_export_w"
+OPT_MIN_SOLAR_PRODUCTION_W = "min_solar_production_w"
 OPT_SOLAR_WAKE_DELTA_SOC = "solar_wake_delta_soc"
 OPT_RECENT_PLUG_WINDOW_MINUTES = "recent_plug_window_minutes"
 OPT_SOLAR_START_MINUTES = "solar_start_minutes"
@@ -54,6 +55,7 @@ DEFAULT_OPTIONS = {
     OPT_POOR_FORECAST_THRESHOLD_KWH: 8.0,
     OPT_ADAPTIVE_BUFFER_ENABLED: True,
     OPT_SOLAR_START_EXPORT_W: 1350.0,
+    OPT_MIN_SOLAR_PRODUCTION_W: 300.0,
     OPT_SOLAR_WAKE_DELTA_SOC: 3.0,
     OPT_RECENT_PLUG_WINDOW_MINUTES: 10.0,
     OPT_SOLAR_START_MINUTES: 2.0,

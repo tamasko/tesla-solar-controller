@@ -16,6 +16,7 @@ A Home Assistant custom integration that coordinates an existing Tesla Fleet / T
 - Optional poor-next-day-forecast solar buffer to 83%
 - Fresh plug-in intent: when newly plugged in and sufficient solar export already exists, charge immediately toward the configured normal target
 - Long-term SOC hysteresis: after the fresh plug-in window, new solar sessions start only when SOC is sufficiently below target
+- Two-sensor solar-start safeguard: a solar start/wake requires both sufficient grid export and minimum measured solar production
 - Optional mobile charging notifications
 
 ## Important architecture
@@ -61,6 +62,7 @@ Entity IDs can differ slightly if Home Assistant has existing names; use Develop
 - The configured **maximum current** is enforced independently of the ESP/grid sensor whenever the Tesla exposes a valid current while awake.
 - Every charge-current command issued by this integration is clamped to that configured maximum.
 - In **Solar only**, an unavailable grid-net sensor causes charging to stop and prevents a new solar charge from starting.
+- A new solar session also requires the solar-production sensor to be available and at/above the configured **Minimum solar production for solar start** (default 300 W); bogus grid export alone cannot wake the Tesla.
 - In **Solar + off-peak**, an unavailable grid-net sensor falls back to the configured off-peak current; it does not attempt solar regulation.
 - Battery maintenance uses the configured minimum current even if the grid sensor is unavailable.
 - This is still cloud software, not a physical electrical safety limiter. Configure the vehicle/EVSE itself for any current that must never be exceeded.
@@ -71,7 +73,7 @@ Entity IDs can differ slightly if Home Assistant has existing names; use Develop
 
 - Uses solar surplus and regulates current between the configured minimum and maximum.
 - A real charge-cable OFF→ON transition opens the configurable **Fresh plug-in solar-start window** (default 10 minutes).
-- During that fresh window, if SOC is below the configured **Normal target SOC** and export already exceeds the solar-start threshold, charging starts immediately with no hold delay, even if the car has already fallen asleep.
+- During that fresh window, if SOC is below the configured **Normal target SOC**, export exceeds the solar-start threshold **and** measured solar production meets or exceeds its configured minimum, charging starts immediately with no hold delay, even if the car has already fallen asleep.
 - The target is always the configured **Normal target SOC** (80% is only the default, not a hard-coded value).
 - If there is not enough solar at plug-in, the controller waits during the fresh window and starts immediately if sufficient export appears before the window expires.
 - After the fresh window, new solar sessions use SOC hysteresis: the restart threshold is normal target minus **Solar wake SOC hysteresis**.
