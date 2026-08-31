@@ -21,8 +21,8 @@
         },
         "data_description": {
           "grid_net_power": "Must be positive for grid import and negative for export, in watts.",
-          "forecast_tomorrow": "Optional Forecast.Solar 'Estimated energy production - tomorrow' sensor in kWh. Leave empty to disable forecast-aware 83% buffering.",
-          "charge_cable": "Used to detect a real physical OFF\u2192ON plug-in. This gives a short immediate solar-start window; HA startup/reload while already plugged in does not count."
+          "forecast_tomorrow": "Optional Forecast.Solar 'Estimated energy production - tomorrow' sensor in kWh. Leave empty to disable forecast-aware buffering to the configured buffer target.",
+          "charge_cable": "Primary charging-command safety gate. Charging can start or be modified only while this sensor is positively ON. A real OFF\u2192ON transition also gives a short immediate solar-start window; HA startup/reload while already plugged in does not count."
         }
       },
       "reconfigure": {
@@ -42,7 +42,7 @@
           "charge_cable": "Tesla charge-cable connected binary sensor"
         },
         "data_description": {
-          "charge_cable": "Used to detect a real physical OFF\u2192ON plug-in. This gives a short immediate solar-start window; HA startup/reload while already plugged in does not count."
+          "charge_cable": "Primary charging-command safety gate. Charging can start or be modified only while this sensor is positively ON. A real OFF\u2192ON transition also gives a short immediate solar-start window; HA startup/reload while already plugged in does not count."
         }
       }
     },
@@ -83,8 +83,8 @@
           "buffer_target_soc": "Default 83%. This target is only used with poor next-day forecast and enough solar surplus while the car is already awake.",
           "notify_service": "Example: notify.mobile_app_tam14p. Leave empty to disable charging notifications.",
           "solar_wake_delta_soc": "Default 3 points. Outside the fresh plug-in window, with an 80% normal target, new solar charging may start at 77% or lower, but not at 78-79%.",
-          "recent_plug_window_minutes": "Default 10 minutes. During this window, a real OFF\u2192ON cable connection may start charging immediately when export is already sufficient and SOC is below the configured normal target. Afterward, SOC hysteresis governs new solar starts.",
-          "min_solar_production_w": "Default 300 W. Fresh plug-in starts and later solar wake/restart events require both enough grid export and at least this much measured solar production. Missing/low solar production cannot wake the vehicle."
+          "recent_plug_window_minutes": "Default 10 minutes. During this window, a real OFF\u2192ON cable connection may start charging immediately when both grid export and measured solar production qualify and SOC is below the configured normal target. Afterward, SOC hysteresis governs new solar starts.",
+          "min_solar_production_w": "Default 300 W. Fresh plug-in starts and later solar wake/restart events require both enough grid export and valid, strictly positive measured solar production at least this high. Missing/low solar production cannot wake the vehicle, and 0 W never qualifies even in corrupt legacy configuration."
         }
       }
     }
@@ -96,6 +96,9 @@
       }
     },
     "switch": {
+      "enabled": {
+        "name": "Enabled"
+      },
       "accessory_power": {
         "name": "Accessory power"
       }

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 DOMAIN = "tesla_solar_controller"
 NAME = "Tesla Solar Controller"
-VERSION = "0.1.7"
+VERSION = "0.1.8"
 
 PLATFORMS = ["sensor", "binary_sensor", "switch", "select"]
 
@@ -76,3 +76,7 @@ STORAGE_VERSION = 1
 STORAGE_KEY_PREFIX = "tesla_solar_controller"
 EVALUATION_INTERVAL_SECONDS = 30
 ACCESSORY_SYNC_DELAY_SECONDS = 120
+CURRENT_INCREASE_HOLD_SECONDS = 60
+CURRENT_DECREASE_HOLD_SECONDS = 30
+COMMAND_DUPLICATE_WINDOW_SECONDS = 120
+COMMAND_MAX_ATTEMPTS = 2

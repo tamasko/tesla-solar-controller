@@ -12,6 +12,7 @@ async def async_get_config_entry_diagnostics(
 ) -> dict:
     controller = entry.runtime_data
     return {
+        "controller_enabled": controller.controller_enabled,
         "mode": controller.mode,
         "requested_accessory": controller.requested_accessory,
         "maintenance_active": controller.maintenance_active,

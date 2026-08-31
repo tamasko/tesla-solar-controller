@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.1.8 — 2026-08-30
+
+- Add the persistent, default-ON **Tesla Solar Controller Enabled** switch. OFF
+  makes the controller passive immediately and sends no final stop, Tesla
+  command, wake, or forced refresh.
+- Require the configured charge-cable sensor to be positively ON for every
+  charging start, charging wake, current change, and charging-related limit
+  change. Preserve no-wake safety stops for positively active charges.
+- Recheck cable plus both live solar-start gates after wake delays and at the
+  final service dispatcher so stale state cannot leak a start command.
+- Keep fresh physical plug-ins immediate when both power gates qualify, while
+  retaining configured normal-target SOC and post-window SOC hysteresis.
+- Hold export continuously for 60 seconds before each 1 A increase and import
+  continuously for 30 seconds before each 1 A decrease. Maximum-current safety
+  corrections remain immediate.
+- Suppress identical current, limit, start, stop, wake, and accessory commands
+  for 120 seconds, allow only one bounded retry, and clear pending commands when
+  Tesla Fleet state confirms them.
+- Remove accessory command retry/refresh loops; confirmation now arrives through
+  normal Tesla Fleet entity updates.
+- Cap **Solar surplus available** at measured solar production and report 0 W
+  whenever grid or solar data is invalid or solar production is non-positive.
+- Clarify disabled, unplugged, fresh-plug, sustained-hold, automatic-wake, and
+  SOC-hysteresis controller status messages.
+
 ## 0.1.7 — 2026-08-16
 
 - Add a two-sensor safeguard for every solar start/wake decision.

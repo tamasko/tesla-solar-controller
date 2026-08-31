@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
-from homeassistant.components.sensor import SensorDeviceClass, SensorEntity, SensorStateClass
+from homeassistant.components.sensor import (
+    SensorDeviceClass,
+    SensorEntity,
+    SensorStateClass,
+)
 from homeassistant.const import PERCENTAGE, UnitOfElectricCurrent, UnitOfPower
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
@@ -42,6 +46,7 @@ class TeslaStatusSensor(TeslaSolarControllerEntity, SensorEntity):
     @property
     def extra_state_attributes(self):
         return {
+            "controller_enabled": self.controller.controller_enabled,
             "mode": self.controller.mode,
             "accessory_requested": self.controller.requested_accessory,
             "maintenance_active": self.controller.maintenance_active,
@@ -140,13 +145,15 @@ class TeslaSolarSurplusSensor(TeslaSolarControllerEntity, SensorEntity):
 
     @property
     def native_value(self) -> float:
-        return round(self.controller.solar_surplus_available_w)
+        # Do not round upward: the published value must never exceed measured
+        # solar production, including when the source has fractional watts.
+        return self.controller.solar_surplus_available_w
 
 
 class TeslaTargetSocSensor(TeslaSolarControllerEntity, SensorEntity):
     _attr_name = "Target SOC"
     _attr_native_unit_of_measurement = PERCENTAGE
-    _attr_icon = "mdi:battery-charging-80"
+    _attr_icon = "mdi:battery-charging"
 
     def __init__(self, controller) -> None:
         super().__init__(controller, "target_soc")
