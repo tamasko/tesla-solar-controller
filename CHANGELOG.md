@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.9 — 2026-09-06
+
+- Remember the last valid charge-cable state so a sleeping Tesla whose cable
+  entity becomes unavailable can still receive a qualified solar wake when it
+  was last known plugged in.
+- Keep valid cable OFF authoritative and require live cable ON before charge
+  limit, current, or charge-switch commands are sent after the wake.
+- Expose the remembered cable state in diagnostics and distinguish a last-known
+  plugged vehicle from one with no valid cable history in controller status.
+
 ## 0.1.8 — 2026-08-30
 
 - Add the persistent, default-ON **Tesla Solar Controller Enabled** switch. OFF

@@ -125,6 +125,7 @@ class TeslaSolarController:
         self._actual_accessory_candidate: str | None = None
         self._actual_accessory_candidate_since: datetime | None = None
         self._recent_plug_at: datetime | None = None
+        self._last_known_charge_cable_connected: bool | None = None
         self._pending_vehicle_commands: dict[str, PendingVehicleCommand] = {}
         self._last_vehicle_commands: dict[
             tuple[str, str | float], datetime
@@ -190,6 +191,7 @@ class TeslaSolarController:
         limit = saved.get("last_charge_limit_pct")
         if isinstance(limit, (int, float)):
             self.last_charge_limit_pct = float(limit)
+        self._remember_live_charge_cable_state()
         self._refresh_cached_values()
         self._update_status()
 
@@ -420,13 +422,20 @@ class TeslaSolarController:
         a new plug-in window.
         """
         if new_state == "on":
+            self._last_known_charge_cable_connected = True
             if old_state == "off":
                 self._recent_plug_at = dt_util.utcnow()
-        else:
-            # OFF and every non-authoritative state fail closed. If the sensor
-            # later recovers directly to ON, that is not a proven OFF -> ON
-            # physical transition and therefore does not fabricate plug intent.
+        elif new_state == "off":
+            self._last_known_charge_cable_connected = False
             self._recent_plug_at = None
+        # A non-authoritative state changes neither remembered state nor the
+        # timestamp of a proven OFF -> ON transition, so it cannot fabricate one.
+
+    def _remember_live_charge_cable_state(self) -> None:
+        """Cache a valid cable state without creating a fresh-plug event."""
+        live = self.charge_cable_connected
+        if live is not None:
+            self._last_known_charge_cable_connected = live
 
     @property
     def charge_cable_connected(self) -> bool | None:
@@ -444,6 +453,20 @@ class TeslaSolarController:
         return self.controller_enabled and self.charge_cable_connected is True
 
     @property
+    def last_known_charge_cable_connected(self) -> bool | None:
+        """Return the last authoritative cable observation."""
+        return self._last_known_charge_cable_connected
+
+    @property
+    def solar_wake_cable_allowed(self) -> bool:
+        """Allow solar wake from live ON or remembered ON while telemetry sleeps."""
+        live = self.charge_cable_connected
+        return self.controller_enabled and (
+            live is True
+            or (live is None and self._last_known_charge_cable_connected is True)
+        )
+
+    @property
     def recent_plug_window_minutes(self) -> float:
         """Configured duration of the fresh plug-in solar-start window."""
         return max(0.0, float(self.options[OPT_RECENT_PLUG_WINDOW_MINUTES]))
@@ -451,7 +474,7 @@ class TeslaSolarController:
     @property
     def recent_plug_active(self) -> bool:
         """Whether a physical plug-in happened recently enough to count as intent."""
-        if self.charge_cable_connected is not True or self._recent_plug_at is None:
+        if not self.solar_wake_cable_allowed or self._recent_plug_at is None:
             return False
         elapsed = (dt_util.utcnow() - self._recent_plug_at).total_seconds()
         return elapsed <= self.recent_plug_window_minutes * 60
@@ -1276,7 +1299,10 @@ class TeslaSolarController:
             )
             return
 
-        if not self.charging_commands_allowed:
+        if not (
+            self.charging_commands_allowed
+            or (not self.is_awake and self.solar_wake_cable_allowed)
+        ):
             self._reset_current_regulation_timers()
             return
 
@@ -1605,6 +1631,16 @@ class TeslaSolarController:
         bypass_solar_hold: bool = False,
         start_allowed: Callable[[], bool] | None = None,
     ) -> bool:
+        def wake_policy_still_allows_start() -> bool:
+            return (
+                self.solar_wake_cable_allowed
+                and (start_allowed is None or start_allowed())
+                and (
+                    not solar_start
+                    or self._solar_dispatch_ready(bypass_solar_hold)
+                )
+            )
+
         def policy_still_allows_start() -> bool:
             return (
                 self.charging_commands_allowed
@@ -1630,9 +1666,22 @@ class TeslaSolarController:
                 and actual_current > self.maximum_current_a
             )
 
-        if not self.charging_commands_allowed or self.is_charging:
+        remembered_solar_wake = (
+            solar_start
+            and allow_wake
+            and not self.is_awake
+            and self.charge_cable_connected is None
+            and self.solar_wake_cable_allowed
+        )
+        if (
+            not self.charging_commands_allowed and not remembered_solar_wake
+        ) or self.is_charging:
             return False
-        if not policy_still_allows_start():
+        if not (
+            wake_policy_still_allows_start()
+            if remembered_solar_wake
+            else policy_still_allows_start()
+        ):
             return False
 
         if not self.is_awake:
@@ -1642,7 +1691,12 @@ class TeslaSolarController:
                 charging=True,
                 solar_start=solar_start,
                 bypass_solar_hold=bypass_solar_hold,
-                final_guard=policy_still_allows_start,
+                allow_last_known_cable=remembered_solar_wake,
+                final_guard=(
+                    wake_policy_still_allows_start
+                    if remembered_solar_wake
+                    else policy_still_allows_start
+                ),
             )
 
         # Wake/refresh delays create a race window. Recheck every start gate
@@ -1800,6 +1854,7 @@ class TeslaSolarController:
         charging: bool,
         solar_start: bool = False,
         bypass_solar_hold: bool = False,
+        allow_last_known_cable: bool = False,
         final_guard: Callable[[], bool] | None = None,
     ) -> bool:
         if self.is_awake:
@@ -1811,6 +1866,7 @@ class TeslaSolarController:
             service="press",
             data={"entity_id": self.data[CONF_WAKE_BUTTON]},
             requires_cable=charging,
+            allow_last_known_cable=allow_last_known_cable,
             requires_solar_start=solar_start,
             bypass_solar_hold=bypass_solar_hold,
             final_guard=final_guard,
@@ -1818,7 +1874,11 @@ class TeslaSolarController:
         if not sent:
             return (
                 self.controller_enabled
-                and (not charging or self.charge_cable_connected is True)
+                and (
+                    not charging
+                    or self.charge_cable_connected is True
+                    or (allow_last_known_cable and self.solar_wake_cable_allowed)
+                )
                 and (final_guard is None or final_guard())
             )
         await asyncio.sleep(10)
@@ -1827,8 +1887,18 @@ class TeslaSolarController:
             desired=None,
             domain="homeassistant",
             service="update_entity",
-            data={"entity_id": self.data[CONF_VEHICLE_STATUS]},
+            data={
+                "entity_id": (
+                    [
+                        self.data[CONF_VEHICLE_STATUS],
+                        self.data[CONF_CHARGE_CABLE],
+                    ]
+                    if allow_last_known_cable
+                    else self.data[CONF_VEHICLE_STATUS]
+                )
+            },
             requires_cable=charging,
+            allow_last_known_cable=allow_last_known_cable,
             requires_solar_start=solar_start,
             bypass_solar_hold=bypass_solar_hold,
             final_guard=final_guard,
@@ -1838,7 +1908,10 @@ class TeslaSolarController:
                 return True
             if not self.controller_enabled:
                 return False
-            if charging and self.charge_cable_connected is not True:
+            if charging and not (
+                self.charge_cable_connected is True
+                or (allow_last_known_cable and self.solar_wake_cable_allowed)
+            ):
                 return False
             if final_guard is not None and not final_guard():
                 return False
@@ -1846,7 +1919,11 @@ class TeslaSolarController:
         _LOGGER.debug("Tesla wake timeout; continuing with command")
         return (
             self.controller_enabled
-            and (not charging or self.charge_cable_connected is True)
+            and (
+                not charging
+                or self.charge_cable_connected is True
+                or (allow_last_known_cable and self.solar_wake_cable_allowed)
+            )
             and (final_guard is None or final_guard())
         )
 
@@ -2067,6 +2144,7 @@ class TeslaSolarController:
         service: str,
         data: dict[str, Any],
         requires_cable: bool = False,
+        allow_last_known_cable: bool = False,
         requires_solar_start: bool = False,
         bypass_solar_hold: bool = False,
         final_guard: Callable[[], bool] | None = None,
@@ -2086,7 +2164,10 @@ class TeslaSolarController:
                     "Suppressing %s.%s while controller is disabled", domain, service
                 )
                 return False
-            if requires_cable and self.charge_cable_connected is not True:
+            if requires_cable and not (
+                self.charge_cable_connected is True
+                or (allow_last_known_cable and self.solar_wake_cable_allowed)
+            ):
                 _LOGGER.debug(
                     "Suppressing %s.%s without positive cable state", domain, service
                 )
@@ -2290,9 +2371,13 @@ class TeslaSolarController:
             )
             return
 
-        if self.charge_cable_connected is not True:
+        if self.charge_cable_connected is not True and not (
+            self.sleep_status == "Sleeping" and self.solar_wake_cable_allowed
+        ):
             if self.charge_cable_connected is False:
                 self.status = "Unplugged · Waiting for vehicle to be plugged in"
+            elif self.last_known_charge_cable_connected is True:
+                self.status = "Last known plugged · Waiting for solar wake conditions"
             else:
                 self.status = "Waiting for valid charge-cable data"
             return
@@ -2321,24 +2406,37 @@ class TeslaSolarController:
             return
 
         if self.sleep_status == "Sleeping":
+            cable_context = (
+                "Last known plugged · "
+                if self.charge_cable_connected is None
+                and self.last_known_charge_cable_connected is True
+                else ""
+            )
             if battery is not None and battery <= self.solar_wake_threshold_soc:
                 if self._solar_start_ready():
-                    self.status = "Sleeping · Solar ready · Waking automatically"
+                    self.status = (
+                        f"{cable_context}Sleeping · Solar ready · "
+                        "Waking automatically"
+                    )
                 elif self._instant_solar_start_ready():
                     self.status = (
-                        "Sleeping · Solar ready · Sustained hold in progress · "
+                        f"{cable_context}Sleeping · Solar ready · "
+                        "Sustained hold in progress · "
                         "Will wake automatically"
                     )
                 else:
                     self.status = (
-                        "Sleeping · Waiting for solar · Will wake automatically "
+                        f"{cable_context}Sleeping · Waiting for solar · "
+                        "Will wake automatically "
                         "at sufficient surplus"
                     )
             elif battery is None:
-                self.status = "Sleeping · Waiting for valid battery SOC"
+                self.status = (
+                    f"{cable_context}Sleeping · Waiting for valid battery SOC"
+                )
             else:
                 self.status = (
-                    f"Sleeping · SOC {battery:.0f}% · Wake threshold ≤"
+                    f"{cable_context}Sleeping · SOC {battery:.0f}% · Wake threshold ≤"
                     f"{self.solar_wake_threshold_soc:.0f}%"
                 )
             return

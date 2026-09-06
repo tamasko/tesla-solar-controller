@@ -22,7 +22,7 @@
         "data_description": {
           "grid_net_power": "Must be positive for grid import and negative for export, in watts.",
           "forecast_tomorrow": "Optional Forecast.Solar 'Estimated energy production - tomorrow' sensor in kWh. Leave empty to disable forecast-aware buffering to the configured buffer target.",
-          "charge_cable": "Primary charging-command safety gate. Charging can start or be modified only while this sensor is positively ON. A real OFF\u2192ON transition also gives a short immediate solar-start window; HA startup/reload while already plugged in does not count."
+          "charge_cable": "Primary charging-command safety gate. A sleeping Tesla may be woken for qualified solar charging when this sensor was last known ON before becoming unavailable; live ON is still required before charging commands proceed. A real OFF\u2192ON transition also gives a short immediate solar-start window; HA startup/reload while already plugged in does not count."
         }
       },
       "reconfigure": {
@@ -42,7 +42,7 @@
           "charge_cable": "Tesla charge-cable connected binary sensor"
         },
         "data_description": {
-          "charge_cable": "Primary charging-command safety gate. Charging can start or be modified only while this sensor is positively ON. A real OFF\u2192ON transition also gives a short immediate solar-start window; HA startup/reload while already plugged in does not count."
+          "charge_cable": "Primary charging-command safety gate. A sleeping Tesla may be woken for qualified solar charging when this sensor was last known ON before becoming unavailable; live ON is still required before charging commands proceed. A real OFF\u2192ON transition also gives a short immediate solar-start window; HA startup/reload while already plugged in does not count."
         }
       }
     },

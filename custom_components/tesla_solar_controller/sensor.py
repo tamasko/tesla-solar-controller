@@ -55,6 +55,9 @@ class TeslaStatusSensor(TeslaSolarControllerEntity, SensorEntity):
             "tomorrow_forecast_kwh": self.controller.tomorrow_forecast_kwh,
             "off_peak": self.controller.off_peak,
             "charge_cable_connected": self.controller.charge_cable_connected,
+            "last_known_charge_cable_connected": (
+                self.controller.last_known_charge_cable_connected
+            ),
             "solar_wake_delta_soc": self.controller.solar_wake_delta_soc,
             "solar_wake_threshold_soc": self.controller.solar_wake_threshold_soc,
             "recent_plug_active": self.controller.recent_plug_active,
