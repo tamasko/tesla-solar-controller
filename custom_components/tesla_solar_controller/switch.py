@@ -36,10 +36,16 @@ class TeslaControllerEnabledSwitch(TeslaSolarControllerEntity, SwitchEntity):
         return self.controller.controller_enabled
 
     async def async_turn_on(self, **kwargs) -> None:
-        await self.controller.async_set_controller_enabled(True)
+        try:
+            await self.controller.async_set_controller_enabled(True)
+        finally:
+            self.async_write_ha_state()
 
     async def async_turn_off(self, **kwargs) -> None:
-        await self.controller.async_set_controller_enabled(False)
+        try:
+            await self.controller.async_set_controller_enabled(False)
+        finally:
+            self.async_write_ha_state()
 
 
 class TeslaAccessoryPowerSwitch(TeslaSolarControllerEntity, SwitchEntity):

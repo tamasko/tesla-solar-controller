@@ -10,6 +10,10 @@
   timer; 30-second current step-down remains unchanged.
 - Publish the Enabled switch's OFF state immediately, before waiting for
   in-flight task cancellation or persistent storage to finish.
+- Republish the Enabled switch state on a repeated ON/OFF request, so a prior
+  interrupted state update cannot leave the displayed switch stale.
+- Write the master switch entity's actual state after each ON/OFF service
+  action, including when persistence reports an error.
 
 ## 0.1.9 — 2026-09-06
 

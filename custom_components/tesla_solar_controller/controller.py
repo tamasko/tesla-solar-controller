@@ -256,6 +256,11 @@ class TeslaSolarController:
         """Persist the master command permission and reevaluate when re-enabled."""
         value = bool(value)
         if value == self.controller_enabled:
+            # A previous request may have changed the in-memory gate but failed
+            # before HA received its state update. Repair that visible state on
+            # a repeated request without issuing any vehicle command.
+            self._update_status()
+            self._notify()
             return
 
         # Set the in-memory gate before the first await so any in-flight command

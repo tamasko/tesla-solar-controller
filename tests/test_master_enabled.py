@@ -1,12 +1,26 @@
 """Master switch and final-dispatch tests using isolated controller methods."""
 
+import ast
 import asyncio
 from datetime import datetime, timezone
+from pathlib import Path
 from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock
 
 from test_solar_stop import method
+
+
+def switch_method(name):
+    source = Path(__file__).resolve().parents[1] / "custom_components/tesla_solar_controller/switch.py"
+    tree = ast.parse(source.read_text())
+    cls = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "TeslaControllerEnabledSwitch")
+    node = next(n for n in cls.body if isinstance(n, ast.AsyncFunctionDef) and n.name == name)
+    module = ast.Module(body=[node], type_ignores=[])
+    ast.fix_missing_locations(module)
+    namespace = {}
+    exec(compile(module, str(source), "exec"), namespace)
+    return namespace[name]
 
 
 class MasterDispatchTest(unittest.IsolatedAsyncioTestCase):
@@ -80,6 +94,34 @@ class MasterDispatchTest(unittest.IsolatedAsyncioTestCase):
 
 
 class MasterSwitchTest(unittest.IsolatedAsyncioTestCase):
+    async def test_switch_publishes_actual_state_even_if_save_fails(self):
+        writes = []
+
+        async def fail_after_setting(value):
+            c.controller_enabled = value
+            raise RuntimeError("storage failed")
+
+        c = SimpleNamespace(controller_enabled=False)
+        entity = SimpleNamespace(
+            controller=c,
+            async_write_ha_state=lambda: writes.append(c.controller_enabled),
+        )
+        c.async_set_controller_enabled = fail_after_setting
+        with self.assertRaisesRegex(RuntimeError, "storage failed"):
+            await switch_method("async_turn_on")(entity)
+        self.assertEqual(writes, [True])
+
+    async def test_repeated_request_republishes_switch_state(self):
+        published = []
+        c = SimpleNamespace(
+            controller_enabled=True,
+            _update_status=lambda: None,
+            _notify=lambda: published.append(c.controller_enabled),
+        )
+        toggle = method("async_set_controller_enabled", {"asyncio": asyncio})
+        await toggle(c, True)
+        self.assertEqual(published, [True])
+
     async def test_off_is_published_before_storage_finishes(self):
         release_save = asyncio.Event()
         published = []
