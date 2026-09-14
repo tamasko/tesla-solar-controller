@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.10 — 2026-09-14
+
+- Log a single targeted warning when calculated solar surplus falls from over
+  500 W to zero, including raw and parsed power inputs, source ages, charging
+  state, and the zero-producing reason. The calculation remains unchanged.
+- Require at least 10 continuous minutes of excessive import while charging
+  at minimum current before final solar stop. A cleared condition resets the
+  timer; 30-second current step-down remains unchanged.
+- Publish the Enabled switch's OFF state immediately, before waiting for
+  in-flight task cancellation or persistent storage to finish.
+
 ## 0.1.9 — 2026-09-06
 
 - Remember the last valid charge-cable state so a sleeping Tesla whose cable

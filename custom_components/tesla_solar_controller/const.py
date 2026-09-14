@@ -4,7 +4,7 @@ from __future__ import annotations
 
 DOMAIN = "tesla_solar_controller"
 NAME = "Tesla Solar Controller"
-VERSION = "0.1.9"
+VERSION = "0.1.10"
 
 PLATFORMS = ["sensor", "binary_sensor", "switch", "select"]
 
@@ -62,7 +62,7 @@ DEFAULT_OPTIONS = {
     OPT_SOLAR_STEP_UP_EXPORT_W: 300.0,
     OPT_GRID_STEP_DOWN_IMPORT_W: 150.0,
     OPT_SOLAR_STOP_IMPORT_W: 300.0,
-    OPT_SOLAR_STOP_MINUTES: 3.0,
+    OPT_SOLAR_STOP_MINUTES: 10.0,
     OPT_MIN_CURRENT_A: 5.0,
     OPT_OFFPEAK_CURRENT_A: 8.0,
     OPT_MAX_CURRENT_A: 10.0,

@@ -120,6 +120,7 @@ class TeslaSolarController:
 
         self._solar_export_since: datetime | None = None
         self._solar_import_since: datetime | None = None
+        self._last_calculated_surplus_w: float | None = None
         self._current_increase_since: datetime | None = None
         self._current_decrease_since: datetime | None = None
         self._actual_accessory_candidate: str | None = None
@@ -274,12 +275,16 @@ class TeslaSolarController:
                 self._evaluate_task = None
                 self._evaluation_pending = False
 
+        # Publish the new switch/status state before awaiting task cancellation
+        # or storage. Neither operation is needed for the final command gate,
+        # and either can take time while a Tesla service call is in flight.
+        self._update_status()
+        self._notify()
+
         if cancelled_tasks:
             await asyncio.gather(*cancelled_tasks, return_exceptions=True)
 
         await self._async_save()
-        self._update_status()
-        self._notify()
 
         if value:
             # This is a normal, coalesced evaluation. It neither resets the mode
@@ -529,7 +534,10 @@ class TeslaSolarController:
         return state.state if state else None
 
     def _float_state(self, entity_id: str | None) -> float | None:
-        raw = self._state(entity_id)
+        return self._parse_float_state(self._state(entity_id))
+
+    @staticmethod
+    def _parse_float_state(raw: str | None) -> float | None:
         if raw in (None, "unknown", "unavailable", "none", ""):
             return None
         try:
@@ -629,12 +637,53 @@ class TeslaSolarController:
 
     @property
     def solar_surplus_available_w(self) -> float:
-        grid = self.grid_net_power_w
-        solar = self.solar_power_w
-        if grid is None or solar is None or solar <= 0:
-            return 0.0
-        raw_available = max(0.0, self.live_charging_power_w - grid)
-        return min(raw_available, solar)
+        grid_state = self.hass.states.get(self.data.get(CONF_GRID_NET_POWER))
+        solar_state = self.hass.states.get(self.data.get(CONF_SOLAR_POWER))
+        grid_raw = grid_state.state if grid_state else None
+        solar_raw = solar_state.state if solar_state else None
+        grid = self._parse_float_state(grid_raw)
+        solar = self._parse_float_state(solar_raw)
+        live_power = self.live_charging_power_w
+        reason = None
+        if grid is None:
+            reason = self._missing_power_reason("grid", grid_raw)
+        elif solar is None:
+            reason = self._missing_power_reason("solar", solar_raw)
+        elif solar <= 0:
+            reason = "solar_zero"
+        if reason is not None:
+            available = 0.0
+        else:
+            available = min(max(0.0, live_power - grid), solar)
+            if available == 0:
+                reason = "calculation_result_zero"
+        previous = self._last_calculated_surplus_w
+        if previous is not None and previous > 500 and available == 0:
+            now = dt_util.utcnow()
+
+            def age(state: Any) -> float | None:
+                return (now - state.last_updated).total_seconds() if state else None
+
+            _LOGGER.warning(
+                "Solar surplus false-zero diagnostic: previous=%s W new=%s W "
+                "reason=%s grid_raw=%r grid_parsed=%s grid_age_s=%s "
+                "solar_raw=%r solar_parsed=%s solar_age_s=%s "
+                "charging_state=%r live_charging_power_w=%s enabled=%s cable_state=%r",
+                previous, available, reason, grid_raw, grid, age(grid_state),
+                solar_raw, solar, age(solar_state),
+                self._state(self.data.get(CONF_CHARGE_SWITCH)), live_power,
+                self.controller_enabled, self._state(self.data.get(CONF_CHARGE_CABLE)),
+            )
+        self._last_calculated_surplus_w = available
+        return available
+
+    @staticmethod
+    def _missing_power_reason(source: str, raw: str | None) -> str:
+        if raw is None:
+            return f"{source}_missing"
+        if raw in ("unknown", "unavailable", "none", ""):
+            return f"{source}_unavailable"
+        return f"{source}_parse_failure"
 
     @property
     def minimum_current_a(self) -> float:
@@ -1041,7 +1090,15 @@ class TeslaSolarController:
         # Stopping an active solar charge remains grid-based. Even if the solar
         # sensor is temporarily unavailable, sustained grid import can still
         # safely stop a minimum-current session.
-        if grid >= float(self.options[OPT_SOLAR_STOP_IMPORT_W]):
+        amps = self.charge_current_a
+        if (
+            self._solar_control_active
+            and not self.maintenance_active
+            and self.is_charging
+            and amps is not None
+            and amps <= self.minimum_current_a
+            and grid >= float(self.options[OPT_SOLAR_STOP_IMPORT_W])
+        ):
             self._solar_import_since = self._solar_import_since or now
         else:
             self._solar_import_since = None
@@ -1056,7 +1113,7 @@ class TeslaSolarController:
         if self._solar_import_since is None:
             return False
         elapsed = (dt_util.utcnow() - self._solar_import_since).total_seconds()
-        return elapsed >= float(self.options[OPT_SOLAR_STOP_MINUTES]) * 60
+        return elapsed >= max(10.0, float(self.options[OPT_SOLAR_STOP_MINUTES])) * 60
 
     def _reset_current_regulation_timers(self) -> None:
         self._current_increase_since = None

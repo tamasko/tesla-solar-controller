@@ -8,5 +8,5 @@
   "documentation": "https://github.com/tamasko/tesla-solar-controller",
   "iot_class": "calculated",
   "issue_tracker": "https://github.com/tamasko/tesla-solar-controller/issues",
-  "version": "0.1.9"
+  "version": "0.1.10"
 }

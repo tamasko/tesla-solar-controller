@@ -249,8 +249,10 @@ class TeslaSolarControllerOptionsFlow(config_entries.OptionsFlow):
                 ): _num(0, 5000, 50),
                 vol.Required(
                     OPT_SOLAR_STOP_MINUTES,
-                    description={"suggested_value": options[OPT_SOLAR_STOP_MINUTES]},
-                ): _num(0, 30, 0.5),
+                    description={
+                        "suggested_value": max(10, options[OPT_SOLAR_STOP_MINUTES])
+                    },
+                ): _num(10, 30, 0.5),
                 vol.Required(
                     OPT_WEEKDAY_OFFPEAK_END_HOUR,
                     description={

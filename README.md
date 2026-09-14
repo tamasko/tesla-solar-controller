@@ -72,7 +72,7 @@ Entity IDs can differ slightly if Home Assistant has existing names; use Develop
 - Battery maintenance uses the configured minimum current even if the grid sensor is unavailable.
 - **Solar surplus available** is 0 W when grid/solar data is invalid or solar is non-positive, and is capped at measured solar production.
 - Identical current, start, stop, limit, wake, and accessory commands are suppressed for at least 120 seconds while Fleet state catches up; any retry is bounded.
-- Current rises by exactly 1 A only after 60 continuous seconds of configured export and falls by exactly 1 A only after 30 continuous seconds of configured import. The existing multi-minute stop hold at minimum current remains in place.
+- Current rises by exactly 1 A only after 60 continuous seconds of configured export and falls by exactly 1 A only after 30 continuous seconds of configured import. At minimum current, final solar stop requires at least 10 continuous minutes above the configured import threshold; any break resets the timer. Existing shorter stop-hold settings are enforced as 10 minutes.
 - This is still cloud software, not a physical electrical safety limiter. Configure the vehicle/EVSE itself for any current that must never be exceeded.
 
 ## Charging modes
