@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.12 — 2026-09-18
 
 - Add graphable, time-weighted 5-minute averages for solar production, P1 grid
   net power, Tesla charging power, and calculated solar surplus.
