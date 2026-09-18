@@ -198,7 +198,7 @@ class TeslaSolarControllerOptionsFlow(config_entries.OptionsFlow):
                 vol.Required(
                     OPT_MIN_CURRENT_A,
                     description={"suggested_value": options[OPT_MIN_CURRENT_A]},
-                ): _num(1, 32, 1),
+                ): _num(3, 32, 1),
                 vol.Required(
                     OPT_OFFPEAK_CURRENT_A,
                     description={"suggested_value": options[OPT_OFFPEAK_CURRENT_A]},
@@ -206,7 +206,7 @@ class TeslaSolarControllerOptionsFlow(config_entries.OptionsFlow):
                 vol.Required(
                     OPT_MAX_CURRENT_A,
                     description={"suggested_value": options[OPT_MAX_CURRENT_A]},
-                ): _num(1, 32, 1),
+                ): _num(3, 32, 1),
                 vol.Required(
                     OPT_SOLAR_START_EXPORT_W,
                     description={"suggested_value": options[OPT_SOLAR_START_EXPORT_W]},

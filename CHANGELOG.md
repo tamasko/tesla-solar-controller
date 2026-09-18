@@ -1,11 +1,27 @@
 # Changelog
 
+## Unreleased
+
+- Add graphable, time-weighted 5-minute averages for solar production, P1 grid
+  net power, Tesla charging power, and calculated solar surplus.
+- Drive solar start, stop, and 1 A regulation decisions from the smoothed power
+  values, while live invalid inputs still fail closed immediately.
+- Space solar-regulation current changes at least 10 minutes apart and enforce a
+  3 A controller floor without weakening the configured maximum-current ceiling.
+- Publish Solar surplus available as unavailable, rather than a misleading
+  0 W, while either configured power source is missing, non-numeric, or
+  unavailable. Control decisions continue to fail closed to 0 W.
+- Add source values and a measurement reason to the surplus sensor attributes
+  so transient source failures can be identified in Home Assistant history.
+
 ## 0.1.11 — 2026-09-14
 
 - Republish the Enabled switch state on a repeated ON/OFF request, so a prior
   interrupted state update cannot leave the displayed switch stale.
 - Write the master switch entity's actual state after each ON/OFF service
   action, including when persistence reports an error.
+- Clarify that Home Assistant may prefix the Enabled entity ID with its area;
+  dashboard actions must target the actual ID shown in Developer Tools.
 
 ## 0.1.10 — 2026-09-14
 

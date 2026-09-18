@@ -80,6 +80,7 @@
         },
         "data_description": {
           "maintenance_start_soc": "Default 78%. Accessory use can trigger maintenance only at or below this SOC.",
+          "min_current_a": "The controller never requests less than 3 A. A higher configured minimum is preserved.",
           "buffer_target_soc": "Default 83%. This target is only used with poor next-day forecast and enough solar surplus while the car is already awake.",
           "notify_service": "Example: notify.mobile_app_tam14p. Leave empty to disable charging notifications.",
           "solar_wake_delta_soc": "Default 3 points. Outside the fresh plug-in window, with an 80% normal target, new solar charging may start at 77% or lower, but not at 78-79%.",
@@ -115,6 +116,18 @@
       },
       "solar_surplus": {
         "name": "Solar surplus available"
+      },
+      "solar_power_5_minute_average": {
+        "name": "Solar production 5-minute average"
+      },
+      "grid_power_5_minute_average": {
+        "name": "P1 grid net power 5-minute average"
+      },
+      "charging_power_5_minute_average": {
+        "name": "Tesla charging power 5-minute average"
+      },
+      "solar_surplus_5_minute_average": {
+        "name": "Solar surplus 5-minute average"
       },
       "target_soc": {
         "name": "Target SOC"

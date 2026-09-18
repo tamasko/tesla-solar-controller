@@ -42,6 +42,11 @@ The setup flow asks for:
 
 ## Entities created
 
+These are example entity IDs. Home Assistant may prefix them with the area or
+device name. For the master switch, select **Enabled** under the **Tesla Solar
+Controller** device and copy its exact ID from Developer Tools → States into
+the dashboard configuration.
+
 - `select.tesla_solar_controller_charging_mode`
 - `switch.tesla_solar_controller_enabled` (persistent master command permission; default ON)
 - `switch.tesla_solar_controller_accessory_power`
@@ -52,6 +57,10 @@ The setup flow asks for:
 - `sensor.tesla_solar_controller_charge_limit` (last valid limit is retained while asleep)
 - `sensor.tesla_solar_controller_live_charging_power`
 - `sensor.tesla_solar_controller_solar_surplus_available`
+- `sensor.tesla_solar_controller_solar_production_5_minute_average`
+- `sensor.tesla_solar_controller_p1_grid_net_power_5_minute_average`
+- `sensor.tesla_solar_controller_tesla_charging_power_5_minute_average`
+- `sensor.tesla_solar_controller_solar_surplus_5_minute_average`
 - `sensor.tesla_solar_controller_target_soc`
 - `binary_sensor.tesla_solar_controller_battery_maintenance`
 - `binary_sensor.tesla_solar_controller_charging`
@@ -71,9 +80,37 @@ Entity IDs can differ slightly if Home Assistant has existing names; use Develop
 - In **Solar + off-peak**, an unavailable grid-net sensor falls back to the configured off-peak current; it does not attempt solar regulation.
 - Battery maintenance uses the configured minimum current even if the grid sensor is unavailable.
 - **Solar surplus available** is 0 W when grid/solar data is invalid or solar is non-positive, and is capped at measured solar production.
+- Solar regulation uses time-weighted 5-minute averages of P1 grid power and solar production. The graphable averaged surplus is calculated directly from averaged P1, solar, and Tesla charging power, so no derived value feeds back into its own inputs.
+- Solar-regulation current changes remain exactly 1 A and are spaced at least 10 minutes apart. Starts, safety stops, explicit modes, and maximum-current corrections are not delayed by this pacing.
+- Controller-issued charge current never goes below 3 A (or the configured maximum if that ceiling is lower). A higher configured minimum remains authoritative.
 - Identical current, start, stop, limit, wake, and accessory commands are suppressed for at least 120 seconds while Fleet state catches up; any retry is bounded.
 - Current rises by exactly 1 A only after 60 continuous seconds of configured export and falls by exactly 1 A only after 30 continuous seconds of configured import. At minimum current, final solar stop requires at least 10 continuous minutes above the configured import threshold; any break resets the timer. Existing shorter stop-hold settings are enforced as 10 minutes.
 - This is still cloud software, not a physical electrical safety limiter. Configure the vehicle/EVSE itself for any current that must never be exceeded.
+
+## Five-minute power graph
+
+Add a History Graph card to a Home Assistant dashboard and replace these
+example IDs if Home Assistant generated different ones:
+
+```yaml
+type: history-graph
+title: Tesla solar power — 5-minute averages
+hours_to_show: 12
+entities:
+  - entity: sensor.tesla_solar_controller_solar_production_5_minute_average
+    name: Solar
+  - entity: sensor.tesla_solar_controller_solar_surplus_5_minute_average
+    name: Solar surplus
+  - entity: sensor.tesla_solar_controller_p1_grid_net_power_5_minute_average
+    name: P1 grid net
+  - entity: sensor.tesla_solar_controller_tesla_charging_power_5_minute_average
+    name: Tesla
+```
+
+P1 import is positive and export is negative. The surplus is calculated from
+the other three averaged primitives as
+`min(max(0, Tesla − P1), solar)`, so it cannot form a calculation loop or
+exceed measured solar production.
 
 ## Charging modes
 

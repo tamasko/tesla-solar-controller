@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -23,6 +24,7 @@ from .const import (
     ACCESSORY_SYNC_DELAY_SECONDS,
     COMMAND_DUPLICATE_WINDOW_SECONDS,
     COMMAND_MAX_ATTEMPTS,
+    CONTROLLER_MINIMUM_CURRENT_A,
     CONF_ACCESSORY_SWITCH,
     CONF_BATTERY_LEVEL,
     CONF_CHARGE_CABLE,
@@ -65,6 +67,8 @@ from .const import (
     OPT_SOLAR_STOP_MINUTES,
     OPT_WEEKDAY_OFFPEAK_END_HOUR,
     OPT_WEEKEND_OFFPEAK_END_HOUR,
+    POWER_AVERAGE_WINDOW_SECONDS,
+    SOLAR_CURRENT_ADJUSTMENT_INTERVAL_SECONDS,
     STORAGE_KEY_PREFIX,
     STORAGE_VERSION,
 )
@@ -81,6 +85,41 @@ class PendingVehicleCommand:
     attempts: int = 1
     confirmation_requires_divergence: bool = False
     divergence_observed: bool = False
+
+
+class RollingPowerAverage:
+    """Time-weighted rolling average for a step-valued power measurement."""
+
+    def __init__(self, window_seconds: float) -> None:
+        self.window_seconds = window_seconds
+        self._points: deque[tuple[datetime, float]] = deque()
+
+    def update(self, now: datetime, value: float | None) -> float | None:
+        """Record the current value and return its rolling time average."""
+        if value is None or not isfinite(value):
+            self._points.clear()
+            return None
+        if self._points and self._points[-1][0] == now:
+            self._points[-1] = (now, float(value))
+        elif not self._points or self._points[-1][1] != float(value):
+            self._points.append((now, float(value)))
+
+        cutoff = now - timedelta(seconds=self.window_seconds)
+        while len(self._points) > 1 and self._points[1][0] <= cutoff:
+            self._points.popleft()
+
+        start = max(cutoff, self._points[0][0])
+        total = 0.0
+        cursor = start
+        current = self._points[0][1]
+        for changed_at, changed_value in list(self._points)[1:]:
+            if changed_at > cursor:
+                total += current * (changed_at - cursor).total_seconds()
+            cursor = max(cursor, changed_at)
+            current = changed_value
+        total += current * max(0.0, (now - cursor).total_seconds())
+        duration = (now - start).total_seconds()
+        return current if duration <= 0 else total / duration
 
 
 class TeslaSolarController:
@@ -123,6 +162,13 @@ class TeslaSolarController:
         self._last_calculated_surplus_w: float | None = None
         self._current_increase_since: datetime | None = None
         self._current_decrease_since: datetime | None = None
+        self._last_solar_current_adjustment_at: datetime | None = None
+        self._grid_power_average = RollingPowerAverage(POWER_AVERAGE_WINDOW_SECONDS)
+        self._solar_power_average = RollingPowerAverage(POWER_AVERAGE_WINDOW_SECONDS)
+        self._tesla_power_average = RollingPowerAverage(POWER_AVERAGE_WINDOW_SECONDS)
+        self._surplus_grid_average = RollingPowerAverage(POWER_AVERAGE_WINDOW_SECONDS)
+        self._surplus_solar_average = RollingPowerAverage(POWER_AVERAGE_WINDOW_SECONDS)
+        self._surplus_tesla_average = RollingPowerAverage(POWER_AVERAGE_WINDOW_SECONDS)
         self._actual_accessory_candidate: str | None = None
         self._actual_accessory_candidate_since: datetime | None = None
         self._recent_plug_at: datetime | None = None
@@ -194,6 +240,7 @@ class TeslaSolarController:
             self.last_charge_limit_pct = float(limit)
         self._remember_live_charge_cable_state()
         self._refresh_cached_values()
+        self._refresh_power_averages()
         self._update_status()
 
     async def async_start(self) -> None:
@@ -369,6 +416,7 @@ class TeslaSolarController:
     @callback
     def _async_source_state_changed(self, event: Event) -> None:
         self._refresh_cached_values()
+        self._refresh_power_averages()
         self._confirm_pending_vehicle_commands()
 
         entity_id = event.data.get("entity_id")
@@ -391,6 +439,7 @@ class TeslaSolarController:
 
     @callback
     def _async_interval(self, now: datetime) -> None:
+        self._refresh_power_averages(now)
         self._schedule_evaluate("interval")
 
     @callback
@@ -495,14 +544,18 @@ class TeslaSolarController:
         Unlike the normal solar-start rule, this intentionally has no hold time.
         It is used only during the short fresh plug-in window.
         """
-        grid = self.grid_net_power_w
-        if grid is None or not self._solar_production_ready():
+        if self.grid_net_power_w is None or not self._solar_production_ready():
+            return False
+        grid = self.averaged_grid_net_power_w
+        if grid is None:
             return False
         return grid <= -float(self.options[OPT_SOLAR_START_EXPORT_W])
 
     def _solar_production_ready(self) -> bool:
         """Return whether measured solar is positive and meets the start minimum."""
-        solar = self.solar_power_w
+        if self.solar_power_w is None:
+            return False
+        solar = self.averaged_solar_power_w
         minimum = max(1.0, float(self.options[OPT_MIN_SOLAR_PRODUCTION_W]))
         return solar is not None and solar > 0 and solar >= minimum
 
@@ -632,6 +685,54 @@ class TeslaSolarController:
             return 0.0
         return max(0.0, amps * self.l2_voltage_v)
 
+    def _refresh_power_averages(self, now: datetime | None = None) -> None:
+        """Sample all primitive power values at one timestamp."""
+        now = now or dt_util.utcnow()
+        grid = self.grid_net_power_w
+        solar = self.solar_power_w
+        tesla = self.live_charging_power_w
+        self._grid_power_average.update(now, grid)
+        self._solar_power_average.update(now, solar)
+        self._tesla_power_average.update(now, tesla)
+        if grid is None or solar is None:
+            grid = solar = tesla = None
+        self._surplus_grid_average.update(now, grid)
+        self._surplus_solar_average.update(now, solar)
+        self._surplus_tesla_average.update(now, tesla)
+
+    @property
+    def averaged_grid_net_power_w(self) -> float | None:
+        return self._grid_power_average.update(dt_util.utcnow(), self.grid_net_power_w)
+
+    @property
+    def averaged_solar_power_w(self) -> float | None:
+        return self._solar_power_average.update(dt_util.utcnow(), self.solar_power_w)
+
+    @property
+    def averaged_tesla_charging_power_w(self) -> float:
+        value = self._tesla_power_average.update(
+            dt_util.utcnow(), self.live_charging_power_w
+        )
+        return value or 0.0
+
+    @property
+    def averaged_solar_surplus_w(self) -> float:
+        """Calculate surplus from averaged primitives without a feedback loop."""
+        grid_live = self.grid_net_power_w
+        solar_live = self.solar_power_w
+        if grid_live is None or solar_live is None:
+            self._refresh_power_averages()
+            return 0.0
+        now = dt_util.utcnow()
+        grid = self._surplus_grid_average.update(now, grid_live)
+        solar = self._surplus_solar_average.update(now, solar_live)
+        tesla = self._surplus_tesla_average.update(
+            now, self.live_charging_power_w
+        )
+        if grid is None or solar is None or solar <= 0:
+            return 0.0
+        return min(max(0.0, (tesla or 0.0) - grid), solar)
+
     @property
     def grid_net_power_w(self) -> float | None:
         return self._float_state(self.data.get(CONF_GRID_NET_POWER))
@@ -639,6 +740,22 @@ class TeslaSolarController:
     @property
     def solar_power_w(self) -> float | None:
         return self._float_state(self.data.get(CONF_SOLAR_POWER))
+
+    @property
+    def solar_surplus_measurement_available(self) -> bool:
+        """Return whether both source measurements can produce a real value."""
+        return self.grid_net_power_w is not None and self.solar_power_w is not None
+
+    @property
+    def solar_surplus_measurement_reason(self) -> str:
+        """Describe why the published surplus measurement is unavailable."""
+        grid_raw = self._state(self.data.get(CONF_GRID_NET_POWER))
+        if self._parse_float_state(grid_raw) is None:
+            return self._missing_power_reason("grid", grid_raw)
+        solar_raw = self._state(self.data.get(CONF_SOLAR_POWER))
+        if self._parse_float_state(solar_raw) is None:
+            return self._missing_power_reason("solar", solar_raw)
+        return "valid"
 
     @property
     def solar_surplus_available_w(self) -> float:
@@ -694,7 +811,10 @@ class TeslaSolarController:
     def minimum_current_a(self) -> float:
         """Configured minimum normalized against the maximum ceiling."""
         maximum = max(0.0, float(self.options[OPT_MAX_CURRENT_A]))
-        return min(max(0.0, float(self.options[OPT_MIN_CURRENT_A])), maximum)
+        return min(
+            max(CONTROLLER_MINIMUM_CURRENT_A, float(self.options[OPT_MIN_CURRENT_A])),
+            maximum,
+        )
 
     @property
     def maximum_current_a(self) -> float:
@@ -712,6 +832,15 @@ class TeslaSolarController:
             and (self.is_awake or self.is_charging)
             and actual is not None
             and actual > self.maximum_current_a
+        )
+
+    def _minimum_current_correction_required(self) -> bool:
+        actual = self.charge_current_a
+        return (
+            self.charging_commands_allowed
+            and (self.is_awake or self.is_charging)
+            and actual is not None
+            and actual < self.minimum_current_a
         )
 
     @property
@@ -743,7 +872,7 @@ class TeslaSolarController:
         if not self.requested_accessory or not self.poor_forecast or not self.is_awake:
             return False
         required = self.minimum_current_a * self.l2_voltage_v + 150.0
-        return self.solar_surplus_available_w >= required
+        return self.averaged_solar_surplus_w >= required
 
     def _desired_target_soc(self) -> float:
         if self.mode == MODE_ASAP:
@@ -1016,6 +1145,16 @@ class TeslaSolarController:
                 self._notify()
                 return
 
+            if self._minimum_current_correction_required():
+                await self._async_set_charge_current(
+                    self.minimum_current_a,
+                    require_awake=False,
+                    final_guard=self._minimum_current_correction_required,
+                )
+                self._update_status()
+                self._notify()
+                return
+
             await self._async_sync_accessory_from_vehicle()
             if self._evaluation_pending:
                 self._update_status()
@@ -1073,12 +1212,17 @@ class TeslaSolarController:
 
     def _update_solar_timers(self) -> None:
         now = dt_util.utcnow()
-        grid = self.grid_net_power_w
+        live_grid = self.grid_net_power_w
 
         # Solar starts/wakes use two independent measurements. A negative grid
         # reading alone is never enough: the configured solar-production sensor
         # must also report meaningful generation. This prevents an erroneous
         # nighttime export reading from waking the Tesla.
+        if live_grid is None:
+            self._solar_export_since = None
+            self._solar_import_since = None
+            return
+        grid = self.averaged_grid_net_power_w
         if grid is None:
             self._solar_export_since = None
             self._solar_import_since = None
@@ -1439,11 +1583,18 @@ class TeslaSolarController:
         session_guard: Callable[[], bool] | None = None,
     ) -> None:
         minimum = self._clamp_charge_current(minimum)
-        grid = self.grid_net_power_w
+        live_grid = self.grid_net_power_w
+        grid = self.averaged_grid_net_power_w
         amps = self.charge_current_a
-        if grid is None or amps is None:
+        if live_grid is None or grid is None or amps is None:
             self._reset_current_regulation_timers()
             return
+
+        def adjustment_interval_elapsed() -> bool:
+            last = self._last_solar_current_adjustment_at
+            return last is None or (
+                dt_util.utcnow() - last
+            ).total_seconds() >= SOLAR_CURRENT_ADJUSTMENT_INTERVAL_SECONDS
 
         def minimum_stop_still_required() -> bool:
             current = self.charge_current_a
@@ -1456,13 +1607,15 @@ class TeslaSolarController:
             )
 
         def increase_still_ready() -> bool:
-            current_grid = self.grid_net_power_w
+            live_current_grid = self.grid_net_power_w
+            current_grid = self.averaged_grid_net_power_w
             current_amps = self.charge_current_a
             return (
                 self.is_charging
                 and self.is_awake
                 and self.charging_commands_allowed
                 and (session_guard is None or session_guard())
+                and live_current_grid is not None
                 and current_grid is not None
                 and current_amps is not None
                 and self._command_values_match(current_amps, amps, 0.1)
@@ -1470,22 +1623,26 @@ class TeslaSolarController:
                 and current_grid
                 <= -float(self.options[OPT_SOLAR_STEP_UP_EXPORT_W])
                 and current_amps < self.maximum_current_a
+                and adjustment_interval_elapsed()
             )
 
         def decrease_still_ready() -> bool:
-            current_grid = self.grid_net_power_w
+            live_current_grid = self.grid_net_power_w
+            current_grid = self.averaged_grid_net_power_w
             current_amps = self.charge_current_a
             return (
                 self.is_charging
                 and self.is_awake
                 and self.charging_commands_allowed
                 and (session_guard is None or session_guard())
+                and live_current_grid is not None
                 and current_grid is not None
                 and current_amps is not None
                 and self._command_values_match(current_amps, amps, 0.1)
                 and current_grid
                 >= float(self.options[OPT_GRID_STEP_DOWN_IMPORT_W])
                 and current_amps > minimum
+                and adjustment_interval_elapsed()
             )
 
         # A no-wake stop remains permitted with positive charging evidence even
@@ -1516,6 +1673,7 @@ class TeslaSolarController:
                     final_guard=increase_still_ready,
                 )
                 if sent:
+                    self._last_solar_current_adjustment_at = dt_util.utcnow()
                     self._current_increase_since = None
             return
 
@@ -1530,6 +1688,7 @@ class TeslaSolarController:
                     final_guard=decrease_still_ready,
                 )
                 if sent:
+                    self._last_solar_current_adjustment_at = dt_util.utcnow()
                     self._current_decrease_since = None
             return
 
@@ -1545,14 +1704,20 @@ class TeslaSolarController:
             self._reset_current_regulation_timers()
             return
 
-        grid = self.grid_net_power_w
+        live_grid = self.grid_net_power_w
+        grid = self.averaged_grid_net_power_w
         if (
-            grid is None
+            live_grid is None
+            or grid is None
             or not self._solar_production_ready()
             or grid > -float(self.options[OPT_SOLAR_STEP_UP_EXPORT_W])
         ):
             self._current_increase_since = None
-        if grid is None or grid < float(self.options[OPT_GRID_STEP_DOWN_IMPORT_W]):
+        if (
+            live_grid is None
+            or grid is None
+            or grid < float(self.options[OPT_GRID_STEP_DOWN_IMPORT_W])
+        ):
             self._current_decrease_since = None
 
     async def _async_command_accessory(
@@ -1816,6 +1981,8 @@ class TeslaSolarController:
         if not self._charge_start_pending():
             self._pending_charge_start_guard = None
         if started:
+            if solar_start:
+                self._last_solar_current_adjustment_at = dt_util.utcnow()
             self.status = f"Starting charge · {reason}"
         return started
 
@@ -1908,6 +2075,8 @@ class TeslaSolarController:
             bypass_solar_hold=bypass_solar_hold,
             final_guard=final_guard,
         )
+        if sent and solar_start:
+            self._last_solar_current_adjustment_at = dt_util.utcnow()
         return sent
 
     async def _async_wake_vehicle(

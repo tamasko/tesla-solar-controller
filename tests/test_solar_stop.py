@@ -1,6 +1,7 @@
 """Focused controller timing tests without a Home Assistant installation."""
 
 import ast
+from collections import deque
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
@@ -10,6 +11,7 @@ SOURCE = Path(__file__).resolve().parents[1] / "custom_components/tesla_solar_co
 TREE = ast.parse(SOURCE.read_text())
 CLASS = next(n for n in TREE.body if isinstance(n, ast.ClassDef) and n.name == "TeslaSolarController")
 METHODS = {n.name: n for n in CLASS.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
+CLASSES = {n.name: n for n in TREE.body if isinstance(n, ast.ClassDef)}
 
 
 def method(name, namespace):
@@ -18,6 +20,45 @@ def method(name, namespace):
     ast.fix_missing_locations(module)
     exec(compile(module, str(SOURCE), "exec"), namespace)
     return namespace[name]
+
+
+def extracted_class(name, namespace):
+    module = ast.Module(
+        body=[
+            ast.ImportFrom(
+                module="__future__",
+                names=[ast.alias(name="annotations")],
+                level=0,
+            ),
+            CLASSES[name],
+        ],
+        type_ignores=[],
+    )
+    ast.fix_missing_locations(module)
+    exec(compile(module, str(SOURCE), "exec"), namespace)
+    return namespace[name]
+
+
+class RollingPowerAverageTest(unittest.TestCase):
+    def test_time_weighted_window_and_invalid_reset(self):
+        average_type = extracted_class(
+            "RollingPowerAverage",
+            {
+                "datetime": datetime,
+                "timedelta": timedelta,
+                "deque": deque,
+                "isfinite": __import__("math").isfinite,
+            },
+        )
+        average = average_type(300)
+        start = datetime(2026, 1, 1, tzinfo=timezone.utc)
+
+        self.assertEqual(average.update(start, 1000), 1000)
+        self.assertEqual(average.update(start + timedelta(seconds=120), 2000), 1000)
+        self.assertEqual(average.update(start + timedelta(seconds=300), 2000), 1600)
+        self.assertEqual(average.update(start + timedelta(seconds=420), 2000), 2000)
+        self.assertIsNone(average.update(start + timedelta(seconds=421), None))
+        self.assertEqual(average.update(start + timedelta(seconds=422), 500), 500)
 
 
 class SolarStopTest(unittest.TestCase):
@@ -32,7 +73,8 @@ class SolarStopTest(unittest.TestCase):
         self.update = method("_update_solar_timers", ns)
         self.ready = method("_solar_stop_ready", ns)
         self.c = SimpleNamespace(
-            grid_net_power_w=400, charge_current_a=5, minimum_current_a=5,
+            grid_net_power_w=400, averaged_grid_net_power_w=400,
+            charge_current_a=5, minimum_current_a=5,
             is_charging=True, _solar_control_active=True, maintenance_active=False,
             _solar_production_ready=lambda: True,
             options={"start": 1350, "stop": 300, "minutes": 3},
@@ -42,6 +84,7 @@ class SolarStopTest(unittest.TestCase):
     def tick(self, seconds, grid=400, amps=5):
         self.clock.now += timedelta(seconds=seconds)
         self.c.grid_net_power_w = grid
+        self.c.averaged_grid_net_power_w = grid
         self.c.charge_current_a = amps
         self.update(self.c)
         return self.ready(self.c)
@@ -64,6 +107,35 @@ class SolarStopTest(unittest.TestCase):
 
 
 class SurplusDiagnosticTest(unittest.TestCase):
+    def test_measurement_availability_distinguishes_invalid_from_real_zero(self):
+        from math import isfinite
+
+        states = {"grid": "250", "solar": "2000"}
+        ns = {
+            "CONF_GRID_NET_POWER": "grid", "CONF_SOLAR_POWER": "solar",
+            "isfinite": isfinite,
+        }
+        parse = method("_parse_float_state", ns).__func__
+        missing = method("_missing_power_reason", ns).__func__
+        available = method("solar_surplus_measurement_available", ns).fget
+        reason = method("solar_surplus_measurement_reason", ns).fget
+        c = SimpleNamespace(
+            data={"grid": "grid", "solar": "solar"},
+            grid_net_power_w=250, solar_power_w=2000,
+            _state=lambda entity: states[entity],
+            _parse_float_state=parse, _missing_power_reason=missing,
+        )
+
+        # Import can produce a genuine calculated zero without making the
+        # measurement itself unavailable.
+        self.assertTrue(available(c))
+        self.assertEqual(reason(c), "valid")
+
+        states["grid"] = "unavailable"
+        c.grid_net_power_w = None
+        self.assertFalse(available(c))
+        self.assertEqual(reason(c), "grid_unavailable")
+
     def test_zero_transition_logs_once_with_raw_inputs(self):
         from math import isfinite
         from unittest.mock import Mock
@@ -114,6 +186,7 @@ class CurrentStepDownTest(unittest.IsolatedAsyncioTestCase):
             "OPT_GRID_STEP_DOWN_IMPORT_W": "down",
             "CURRENT_INCREASE_HOLD_SECONDS": 60,
             "CURRENT_DECREASE_HOLD_SECONDS": 30,
+            "SOLAR_CURRENT_ADJUSTMENT_INTERVAL_SECONDS": 600,
         }
         regulate = method("_async_regulate_current", ns)
         commands = []
@@ -125,7 +198,8 @@ class CurrentStepDownTest(unittest.IsolatedAsyncioTestCase):
 
         c = SimpleNamespace(
             _clamp_charge_current=lambda amps: amps,
-            grid_net_power_w=400, charge_current_a=6,
+            grid_net_power_w=400, averaged_grid_net_power_w=400,
+            charge_current_a=6,
             is_charging=True, is_awake=True, charging_commands_allowed=True,
             maximum_current_a=10, options={"up": 300, "down": 150},
             _command_values_match=lambda a, b, tolerance: abs(a-b) <= tolerance,
@@ -134,6 +208,7 @@ class CurrentStepDownTest(unittest.IsolatedAsyncioTestCase):
             _reset_current_regulation_timers=lambda: None,
             _async_set_charge_current=set_current,
             _current_increase_since=None, _current_decrease_since=None,
+            _last_solar_current_adjustment_at=None,
         )
         await regulate(c, 5, True)
         clock.now += timedelta(seconds=29)
@@ -142,6 +217,18 @@ class CurrentStepDownTest(unittest.IsolatedAsyncioTestCase):
         clock.now += timedelta(seconds=1)
         await regulate(c, 5, True)
         self.assertEqual(commands, [5])
+
+        # The qualifying import may continue, but another current command must
+        # wait ten minutes and then prove the normal 30-second hold again.
+        clock.now += timedelta(seconds=599)
+        await regulate(c, 5, True)
+        self.assertEqual(commands, [5])
+        clock.now += timedelta(seconds=1)
+        await regulate(c, 5, True)
+        self.assertEqual(commands, [5])
+        clock.now += timedelta(seconds=30)
+        await regulate(c, 5, True)
+        self.assertEqual(commands, [5, 5])
 
 
 if __name__ == "__main__":
