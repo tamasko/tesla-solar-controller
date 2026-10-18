@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.1 — 2026-10-18
+
+- Replace the blue-car branding with a Tesla-inspired red solar-charging emblem, packaged as 256 px and 512 px integration icons.
+- Document the branding location and the HACS placeholder-icon display issue. Charging behavior is unchanged.
+
 ## 0.2.0 — 2026-10-18
 
 - Replace solar/vehicle-power averages and production gates with direct SIG P1 export/import control; remove Forecast.Solar entirely.

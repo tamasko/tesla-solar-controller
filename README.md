@@ -1,5 +1,7 @@
 # Tesla Solar Controller
 
+![Tesla Solar Controller logo](custom_components/tesla_solar_controller/brand/icon.png)
+
 A Home Assistant custom integration that controls existing Tesla Fleet entities using **SIG P1 grid export/import only**. It does not authenticate to Tesla itself. Control logic stays inside the integration; no YAML charging automations or helpers are required.
 
 ## Solar charging
@@ -57,6 +59,12 @@ Existing Enabled, charging mode, battery/current/limit/status, charging binary s
 The live Tesla dashboard configuration is saved in `dashboards/tesla.yaml`. It uses the installation's actual Enabled entity ID (`switch.all_house_tesla_solar_controller_enabled`), P1 net-power history and daily allowance cards. Until v0.2.0 is installed, the counters show "Pending update". Existing charging-energy and cost charts are retained.
 
 The Status sensor exposes today's commands, wakes and solar sessions, budget date, session type, preparation state and cooldown deadline. Diagnostics include persisted command retry records. Reload resets continuous qualification timers; unfinished solar preparation restarts conservatively after cooldown. Daily counters and active-session identity survive reloads.
+
+## Branding
+
+The red solar-charging emblem ships in `custom_components/tesla_solar_controller/brand/` as `icon.png` (256 px) and `icon@2x.png` (512 px), following [Home Assistant's local branding convention](https://contributors.home-assistant.io/blog/2026/02/24/brands-proxy-api/). Install the new integration version and restart Home Assistant to load the packaged assets.
+
+Some HACS versions display "Icon not available" despite valid local branding; see [HACS issue #5402](https://github.com/hacs/integration/issues/5402). Changing these files cannot fix that frontend issue. Artwork generation details are in [the branding notes](docs/branding.md).
 
 ## Development
 
