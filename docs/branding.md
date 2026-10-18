@@ -9,6 +9,14 @@ Created and edited with the built-in imagegen tool. Background extraction used a
 
 The packaged icons were visually checked against white and dark backgrounds.
 
+## HACS repository-list icon
+
+Release v0.2.2 includes both transparent icons. Home Assistant can serve them locally after the integration is updated and Home Assistant is restarted.
+
+Legacy HACS can still show an "Icon not available" placeholder because its repository list uses the brands CDN instead of the installed integration's local assets. [HACS issue #5402](https://github.com/hacs/integration/issues/5402) was closed on October 16, 2026 with confirmation that this is fixed in the Marketplace shipping with Home Assistant 2026.11. Changing these PNGs cannot fix the legacy HACS lookup. Keep the supported `brand/` layout; do not add an unsupported icon URL to `hacs.json` or submit custom-integration artwork to the Home Assistant brands repository.
+
+The [Home Assistant publishing guide](https://contributors.home-assistant.io/marketplace/guides/integrations/#brand-images) documents packaged branding and Marketplace catalog discovery from integration releases.
+
 ## Original generation prompt
 
 Create a production app icon for Tesla Solar Controller. Square 1024x1024. A clean solid red emblem of a front-facing sleek electric car with a simple sun rising over its roof, and one lightning-bolt shape cut through the car hood. Tesla-inspired automotive styling. Minimal flat vector-style shapes, red on a perfectly uniform solid dark charcoal #1A1F26 square background. All negative spaces and windows use exactly the same charcoal color as background, fully opaque image. Smooth crisp shapes and NO texture, NO grunge, NO distressed effect, NO speckles, NO gradients, NO reflections or tiny ornament. No text, letters, wordmark or official Tesla T. Simple enough to be readable at 32 pixels. Centered symmetry. Emblem fills 80 percent of image width and height, generous 10 percent padding. Use only red and charcoal colors with antialiased edges.

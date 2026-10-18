@@ -62,9 +62,11 @@ The Status sensor exposes today's commands, wakes and solar sessions, budget dat
 
 ## Branding
 
-The red solar-charging emblem has a transparent background and ships in `custom_components/tesla_solar_controller/brand/` as `icon.png` (256 px) and `icon@2x.png` (512 px), following [Home Assistant's local branding convention](https://contributors.home-assistant.io/blog/2026/02/24/brands-proxy-api/). Install the new integration version and restart Home Assistant to load the packaged assets.
+The red solar-charging emblem has a transparent background and ships in `custom_components/tesla_solar_controller/brand/` as `icon.png` (256 px) and `icon@2x.png` (512 px), following [Home Assistant's local branding convention](https://contributors.home-assistant.io/blog/2026/02/24/brands-proxy-api/).
 
-Some HACS versions display "Icon not available" despite valid local branding; see [HACS issue #5402](https://github.com/hacs/integration/issues/5402). Changing these files cannot fix that frontend issue. Artwork generation details are in [the branding notes](docs/branding.md).
+The transparent icons are included in release **v0.2.2**. Update or redownload that version in HACS, then restart Home Assistant to load them in Settings → Devices & services.
+
+The small HACS repository-list icon can still show "Icon not available": legacy HACS looks up custom-integration icons on the brands CDN instead of using these packaged files. In [HACS issue #5402](https://github.com/hacs/integration/issues/5402), maintainers confirmed on October 16, 2026 that the fix ships with **Home Assistant 2026.11's Marketplace**. Until that version is available and installed, replacing the artwork or redownloading this integration cannot resolve the HACS list placeholder. Custom integrations should keep their assets in `brand/`, rather than submit them to the Home Assistant brands repository. See [Home Assistant's publishing guide](https://contributors.home-assistant.io/marketplace/guides/integrations/#brand-images) and [the artwork notes](docs/branding.md).
 
 ## Development
 
