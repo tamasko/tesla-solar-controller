@@ -1,168 +1,72 @@
 # Tesla Solar Controller
 
-A Home Assistant custom integration that coordinates an existing Tesla Fleet / Tesla Fleet Extra setup with local solar and grid sensors.
+A Home Assistant custom integration that controls existing Tesla Fleet entities using **SIG P1 grid export/import only**. It does not authenticate to Tesla itself. Control logic stays inside the integration; no YAML charging automations or helpers are required.
 
-## Goals
+## Solar charging
 
-- No Tesla-specific YAML in `configuration.yaml`
-- No helper booleans/selects for controller state
-- One central state machine instead of several overlapping automations
-- Solar-only charging between configurable minimum and maximum currents (defaults 5–10 A)
-- SIG-style off-peak mode
-- Charge ASAP mode
-- Keep Accessory Power control with sleep-aware command handling
-- Configurable maintenance restart hysteresis (default 78%)
-- Configurable normal target (default 80%)
-- Optional poor-next-day-forecast solar buffer (default 83%)
-- Fresh plug-in intent: when newly plugged in and both the grid-export and measured-production gates qualify, charge immediately toward the configured normal target
-- Long-term SOC hysteresis: after the fresh plug-in window, new solar sessions start only when SOC is sufficiently below target
-- Two-sensor solar-start safeguard: a solar start/wake requires both sufficient grid export and minimum measured solar production
-- Optional mobile charging notifications
+- P1 is in watts: **positive = import, negative = export**. Suggested source: `sensor.sig_p1_meter_grid_net_power`.
+- Every solar start requires **30 continuous minutes** of export covering **5 A × L2 voltage + 200 W** (1,350 W at 230 V). A threshold break resets the hold. Plugging in does not bypass it. No start-hour restriction applies.
+- Starts use **5 A**, with an enforced **5–10 A** range. Charge ASAP starts at 10 A.
+- Current increases require 60 continuous seconds of enough export to cover at least one extra amp plus 200 W. Decreases require 30 continuous seconds of at least 150 W import. Steps are whole amps and may exceed 1 A to follow a steep change.
+- Solar current adjustments are at least **five minutes apart**, including retries. Starts, explicit charging-mode changes and corrections of out-of-range current are exempt from this regulation interval.
+- At **5 A**, **30 continuous minutes importing at least 300 W** stops solar charging. A break below 300 W or leaving minimum current resets that timer. This deliberately permits some grid energy through clouds.
+- After a solar stop, wait **60 minutes**, then qualify a fresh 30-minute export hold. At most **two solar start attempts per local day**, even if the car is already awake. Failed preparation conservatively consumes a session allowance.
+- Every solar start also requires SOC at or below the configurable normal target minus the configurable hysteresis (default 3 percentage points). Fresh plug-ins follow the same rule. An active session continues to the normal target.
+- Solar production, Forecast.Solar and lagging vehicle-power measurements never participate in surplus control. The **Solar surplus available** sensor now means unconsumed P1 export, `max(0, -P1)`, and excludes power already consumed by the car. Invalid P1 publishes unavailable and returns 0 W internally.
 
-## Important architecture
+P1 shows current surplus, not future sunshine. The sustained-export hold and session limits reduce short charging sessions but cannot guarantee a sunny half-day. L2 voltage only converts amps to watts; invalid voltage uses 230 V.
 
-This integration does **not** authenticate to Tesla and does not implement Tesla's command-signing protocol. It uses the entities already exposed by Home Assistant's Tesla Fleet integration and Tesla Fleet Extra.
+## Three charging modes
 
-## Required source entities
+| Mode | Behavior |
+| --- | --- |
+| Solar only | Qualified P1 solar charging. If P1 becomes unavailable, wait for scheduled off-peak hours and charge to the normal target. |
+| Solar + off-peak | Scheduled grid charging during off-peak; qualified solar charging outside those hours. |
+| Charge ASAP | Charge toward **100% at 10 A**, independent of P1. |
 
-The setup flow asks for:
+Solar and off-peak use the configurable normal target (80% default). Off-peak starts at 5 A and then uses its configured 5–10 A current (8 A default). When a grid-charging window ends or missing P1 recovers in Solar only, stop grid charging before qualifying a new solar start.
 
-- Tesla awake/status binary sensor
-- Tesla wake button
-- Tesla battery level
-- Tesla charge switch
-- Tesla charge-cable connected binary sensor (required as the charging-command safety gate)
-- Tesla charge-current number
-- Tesla charge-limit number
-- Tesla Keep Accessory Power switch
-- grid net power (W; import positive, export negative)
-- L2 voltage
-- solar power
-- optional Forecast.Solar "Estimated energy production - tomorrow" sensor
+The retained default schedule is weekdays before 07:00 and from 22:00; weekends before 17:00 and from 22:00. Hours use Home Assistant's timezone. Change these in Configure if needed. Missing P1 stops an active solar charge outside this schedule; it never triggers immediate unrestricted grid charging. Accessory power, battery maintenance, forecast buffering have been removed. Optional charging notifications remain configurable through a HA notify service.
 
-## Entities created
+## Daily Tesla budgets and safety
 
-These are example entity IDs. Home Assistant may prefix them with the area or
-device name. For the master switch, select **Enabled** under the **Tesla Solar
-Controller** device and copy its exact ID from Developer Tools → States into
-the dashboard configuration.
+- **Two wake attempts and 150 command attempts per HA-local calendar day**, across all three modes. Wakes count toward both budgets. Failed service calls and retries count too.
+- Counter reservations and retry records are saved **before dispatch**. Reloading, restarting or toggling Enabled does not restore allowance. If storage fails, that command is blocked. The final command is reserved for stopping; reaching 149 attempts stops an active charge instead of continuing regulation. New sessions require at least five commands of headroom.
+- Commands to other integrations or the Tesla app are outside this integration's accounting. A HA service invocation is counted as one attempt; internal Fleet polling, automatic wakes and transport retries are outside its visibility. These are controller dispatch limits, not a global Tesla API request meter.
+- No forced Tesla refreshes are issued. Wake preparation waits for the existing Fleet entities to report the vehicle awake; it never starts on a wake timeout alone. After a successful wake service call, wait at least 12 minutes before another wake attempt to allow normal Fleet polling to catch up.
+- Identical commands are suppressed for at least 120 seconds. Unconfirmed commands have at most two attempts per feedback episode; a confirmed state followed by divergence permits a new episode. Daily rollover also replenishes exhausted retries, except an unconfirmed charging start must first be resolved or cancelled.
+- Wakes, starts, current changes and limit changes require the cable sensor **positively ON**. No last-known-cable wake exception. A safety stop can be issued without a connected cable when charging is positively active or this controller has an unconfirmed start attempt. All non-wake commands also require positive awake status, because Fleet entity commands can otherwise auto-wake internally.
+- **Enabled OFF sends no command, including no final stop**, and no forced refresh. Existing charging continues untouched. The state persists. Disabling invalidates in-flight preparation; dispatch checks the switch and cable again after saving a reservation.
+- Budgets and bounded retries can prevent a stop from succeeding after Tesla errors. Set the vehicle/EVSE's own current and charge limits; cloud commands are not a physical electrical limiter.
 
-- `select.tesla_solar_controller_charging_mode`
-- `switch.tesla_solar_controller_enabled` (persistent master command permission; default ON)
-- `switch.tesla_solar_controller_accessory_power`
-- `sensor.tesla_solar_controller_status`
-- `sensor.tesla_solar_controller_sleep_status`
-- `sensor.tesla_solar_controller_battery_level` (last valid SOC is retained while the car sleeps)
-- `sensor.tesla_solar_controller_charge_current` (last valid current is retained while asleep)
-- `sensor.tesla_solar_controller_charge_limit` (last valid limit is retained while asleep)
-- `sensor.tesla_solar_controller_live_charging_power`
-- `sensor.tesla_solar_controller_solar_surplus_available`
-- `sensor.tesla_solar_controller_solar_production_5_minute_average`
-- `sensor.tesla_solar_controller_p1_grid_net_power_5_minute_average`
-- `sensor.tesla_solar_controller_tesla_charging_power_5_minute_average`
-- `sensor.tesla_solar_controller_solar_surplus_5_minute_average`
-- `sensor.tesla_solar_controller_target_soc`
-- `binary_sensor.tesla_solar_controller_battery_maintenance`
-- `binary_sensor.tesla_solar_controller_charging`
+## Setup and upgrade
 
-Entity IDs can differ slightly if Home Assistant has existing names; use Developer Tools → States to confirm them.
+Install through HACS as a custom integration repository, restart Home Assistant, then add **Tesla Solar Controller** in Settings → Devices & services.
 
-## Safety and fail-safe behavior
+Select these existing entities:
 
-- Turning **Tesla Solar Controller Enabled** OFF immediately makes this integration passive. It sends no wake, charging, charge-limit, accessory, stop, or forced-refresh command and leaves an active charge exactly as it is. The state persists across integration reloads, Home Assistant restarts/updates, and HACS updates.
-- Turning the controller back ON performs one normal reevaluation. It does not reset the selected mode, fabricate a fresh plug-in, or wake the vehicle unless the selected mode and all normal gates allow it.
-- This switch controls only Tesla Solar Controller. It does **not** disable the underlying Tesla Fleet or Tesla Fleet Extra integration.
-- Charging starts, current changes, and charging-limit changes require the configured cable sensor to be positively ON. A sleeping vehicle may be woken for a fully qualified solar start when the cable was last validly ON and has since become unavailable; a valid OFF revokes that eligibility immediately. After wake, live cable ON is required before charging commands proceed. A positively active charge may still receive a no-wake safety stop.
-- The configured **maximum current** is enforced independently of the ESP/grid sensor whenever the cable sensor is positively ON and the Tesla is awake or positively reports an active charge.
-- Every charge-current command is clamped between the configured minimum and maximum, always preserving the maximum ceiling.
-- In **Solar only**, an unavailable grid-net sensor causes charging to stop and prevents a new solar charge from starting.
-- Every solar start/wake requires both sufficient valid grid export and valid, strictly positive solar production at/above **Minimum solar production for solar start** (default 300 W). Bogus night-time export with 0 W production cannot wake the Tesla.
-- In **Solar + off-peak**, an unavailable grid-net sensor falls back to the configured off-peak current; it does not attempt solar regulation.
-- Battery maintenance uses the configured minimum current even if the grid sensor is unavailable.
-- **Solar surplus available** is 0 W when grid/solar data is invalid or solar is non-positive, and is capped at measured solar production.
-- Solar regulation uses time-weighted 5-minute averages of P1 grid power and solar production. The graphable averaged surplus is calculated directly from averaged P1, solar, and Tesla charging power, so no derived value feeds back into its own inputs.
-- Solar-regulation current changes remain exactly 1 A and are spaced at least 10 minutes apart. Starts, safety stops, explicit modes, and maximum-current corrections are not delayed by this pacing.
-- Controller-issued charge current never goes below 3 A (or the configured maximum if that ceiling is lower). A higher configured minimum remains authoritative.
-- Identical current, start, stop, limit, wake, and accessory commands are suppressed for at least 120 seconds while Fleet state catches up; any retry is bounded.
-- Current rises by exactly 1 A only after 60 continuous seconds of configured export and falls by exactly 1 A only after 30 continuous seconds of configured import. At minimum current, final solar stop requires at least 10 continuous minutes above the configured import threshold; any break resets the timer. Existing shorter stop-hold settings are enforced as 10 minutes.
-- This is still cloud software, not a physical electrical safety limiter. Configure the vehicle/EVSE itself for any current that must never be exceeded.
+- Tesla awake/status binary sensor and wake button
+- Battery SOC sensor, charge switch and charge-cable binary sensor
+- Charge-current and charge-limit number entities
+- P1 net-power sensor and L2 voltage sensor
 
-## Five-minute power graph
+Version 0.2.0 migrates existing entries automatically, retaining these entity mappings, normal SOC target, hysteresis and off-peak settings. Obsolete production, forecast, accessory and maintenance settings are removed; the new fixed timing/current rules replace legacy tuning. Only obsolete entities belonging to this controller are removed from its entity registry. The real Tesla accessory switch is untouched; turn it off separately if it was previously left on.
 
-Add a History Graph card to a Home Assistant dashboard and replace these
-example IDs if Home Assistant generated different ones:
+Existing Enabled, charging mode, battery/current/limit/status, charging binary sensor, target and surplus entity unique IDs remain stable. Old five-minute power-average entities are removed. Update dashboards that referenced removed entities or the old surplus meaning.
 
-```yaml
-type: history-graph
-title: Tesla solar power — 5-minute averages
-hours_to_show: 12
-entities:
-  - entity: sensor.tesla_solar_controller_solar_production_5_minute_average
-    name: Solar
-  - entity: sensor.tesla_solar_controller_solar_surplus_5_minute_average
-    name: Solar surplus
-  - entity: sensor.tesla_solar_controller_p1_grid_net_power_5_minute_average
-    name: P1 grid net
-  - entity: sensor.tesla_solar_controller_tesla_charging_power_5_minute_average
-    name: Tesla
+The live Tesla dashboard configuration is saved in `dashboards/tesla.yaml`. It uses the installation's actual Enabled entity ID (`switch.all_house_tesla_solar_controller_enabled`), P1 net-power history and daily allowance cards. Until v0.2.0 is installed, the counters show "Pending update". Existing charging-energy and cost charts are retained.
+
+The Status sensor exposes today's commands, wakes and solar sessions, budget date, session type, preparation state and cooldown deadline. Diagnostics include persisted command retry records. Reload resets continuous qualification timers; unfinished solar preparation restarts conservatively after cooldown. Daily counters and active-session identity survive reloads.
+
+## Development
+
+Single Tesla, single-phase L2 charging. Validate locally with:
+
+```sh
+python3 -m unittest discover -s tests -v
+python3 -m compileall -q custom_components/tesla_solar_controller
+python3 -c 'import json, pathlib; [json.loads(p.read_text()) for p in pathlib.Path(".").rglob("*.json") if ".git" not in p.parts]'
+git diff --check
 ```
 
-P1 import is positive and export is negative. The surplus is calculated from
-the other three averaged primitives as
-`min(max(0, Tesla − P1), solar)`, so it cannot form a calculation loop or
-exceed measured solar production.
-
-## Charging modes
-
-### Solar only
-
-- Uses solar surplus and regulates current between the configured minimum and maximum.
-- A real charge-cable OFF→ON transition opens the configurable **Fresh plug-in solar-start window** (default 10 minutes).
-- During that fresh window, if SOC is below the configured **Normal target SOC**, export meets the solar-start threshold **and** measured solar production meets or exceeds its configured minimum, charging starts immediately with no hold delay, even if the car has already fallen asleep.
-- The target is always the configured **Normal target SOC** (80% is only the default, not a hard-coded value).
-- If either solar gate is short at plug-in, the controller waits during the fresh window and starts immediately if both sufficient export and measured production appear before the window expires.
-- After the fresh window, new solar sessions use SOC hysteresis: the restart threshold is normal target minus **Solar wake SOC hysteresis**.
-- Default example: normal target 80%, hysteresis 3 points -> a long-plugged car at 79/78% does not restart; 77% or lower can restart after the normal sustained-solar hold.
-- If a cloudy day only charges 65% -> 70%, the next sufficiently sunny period can automatically wake the car and continue toward the configured normal target.
-- Once a solar session is already running, it can continue toward target; hysteresis is for starting/restarting sessions, not for prematurely stopping an active one.
-
-### Solar + off-peak
-
-- Same solar behavior outside off-peak hours.
-- During configured off-peak periods, the controller may wake the Tesla if the cable is positively connected and the last known SOC is below the normal target.
-- Default SIG schedule used by this project:
-  - weekdays: before 07:00 and from 22:00
-  - weekends: before 17:00 and from 22:00
-
-### Charge ASAP
-
-- Remembers the requested mode while unplugged; with the cable positively connected, it explicitly wakes the vehicle.
-- Sets charge limit to 100%.
-- Uses configured maximum current.
-
-## Accessory / battery maintenance
-
-Default behavior:
-
-- Accessory requested ON controls the real Tesla Keep Accessory Power switch and may wake the vehicle while unplugged.
-- At or below the configured maintenance threshold (default 78%), battery maintenance is latched ON.
-- Maintenance charging waits for a positively connected cable and charges toward the configured normal target.
-- If tomorrow's solar forecast is poor **and** enough surplus is available while the Tesla is already awake, the target can extend to the configured buffer target (default 83%).
-- Above the configured normal target, the controller will not buy grid power merely to reach the buffer target, and the buffer alone never wakes a sleeping vehicle.
-- Once the target is reached, charging stops and the Tesla is allowed to sleep.
-- A fresh physical plug-in can start an immediate solar session below the configured normal target; later restarts use the configured SOC hysteresis band.
-
-## Installation via HACS custom repository
-
-1. Put this repository on public GitHub.
-2. HACS → Integrations → three-dot menu → Custom repositories.
-3. Add the repository URL and choose category **Integration**.
-4. Install **Tesla Solar Controller**.
-5. Restart Home Assistant.
-6. Settings → Devices & services → Add integration → **Tesla Solar Controller**.
-7. Select the source entities.
-8. Open the integration's **Configure** dialog to tune thresholds and optionally enter a mobile notification service such as `notify.mobile_app_tam14p`.
-
-## Development status
-
-This is a beta integration tailored to a single Tesla and a single-phase AC charging setup. Test carefully before relying on it unattended.
+GitHub Actions runs HACS and Hassfest after push. Do not publish a release until both pass.

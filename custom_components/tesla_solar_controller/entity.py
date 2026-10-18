@@ -5,7 +5,7 @@ from __future__ import annotations
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity import Entity
 
-from .const import DOMAIN, NAME, VERSION
+from .const import NAME, VERSION
 from .controller import TeslaSolarController
 
 

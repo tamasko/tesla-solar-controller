@@ -1,5 +1,29 @@
 # Migration
 
+## v0.1.x → v0.2.0
+
+The configuration migrates automatically. Keep the Tesla awake/wake, cable,
+charge switch, SOC, current/limit, P1 net-power and L2 voltage mappings. Normal
+SOC, hysteresis and off-peak schedule settings remain; off-peak current is
+clamped to 5–10 A. Other tuning is replaced by the fixed P1-only rules in README.
+
+Accessory power, automatic battery maintenance, Forecast.Solar and measured
+solar-production inputs are removed. The underlying Tesla accessory switch is
+not changed; turn it off separately if it was left on. Remove dashboard cards
+for controller accessory/maintenance and five-minute power-average entities.
+The surplus sensor now reports only unconsumed P1 export, excluding car power.
+
+Every solar start, including fresh plug-ins, now requires 30 minutes of export
+covering 5 A plus 200 W. Missing P1 falls back to the configured off-peak hours,
+even in Solar only. Inspect those hours before enabling unattended control.
+Daily limits are two wake attempts, two solar start attempts and 150 commands,
+with the final command reserved for stopping. The counters persist across
+restarts and reset at midnight in HA's timezone. The old Enabled state and
+charging mode are preserved. See README for all timing and retry rules.
+
+The sections below describe historical upgrades and the original YAML-to-
+integration migration; their accessory/forecast behavior does not apply to 0.2.0.
+
 ## v0.1.7 → v0.1.8
 
 No config-entry recreation is needed. After updating, the new

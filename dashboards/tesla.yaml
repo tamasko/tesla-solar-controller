@@ -1,0 +1,401 @@
+views:
+  - type: sections
+    sections:
+      - type: grid
+        cards:
+          - type: vertical-stack
+            cards:
+              - type: grid
+                columns: 4
+                square: false
+                cards:
+                  - type: custom:mushroom-template-card
+                    entity: select.tesla_solar_controller_charging_mode
+                    primary: Solar
+                    secondary: P1 surplus
+                    icon: mdi:solar-power
+                    layout: vertical
+                    icon_color: |
+                      {% if is_state(
+                        'select.tesla_solar_controller_charging_mode',
+                        'Solar only'
+                      ) %}
+                        amber
+                      {% else %}
+                        disabled
+                      {% endif %}
+                    tap_action:
+                      action: perform-action
+                      perform_action: select.select_option
+                      target:
+                        entity_id: select.tesla_solar_controller_charging_mode
+                      data:
+                        option: Solar only
+                    card_mod:
+                      style: |
+                        ha-card {
+                          {% if is_state(
+                            'select.tesla_solar_controller_charging_mode',
+                            'Solar only'
+                          ) %}
+                            background: rgba(255, 193, 7, 0.22);
+                            border: 2px solid rgb(255, 193, 7);
+                            box-shadow: 0 0 10px rgba(255, 193, 7, 0.35);
+                          {% else %}
+                            opacity: 0.65;
+                          {% endif %}
+                        }
+                  - type: custom:mushroom-template-card
+                    entity: select.tesla_solar_controller_charging_mode
+                    primary: Solar + off peak
+                    secondary: Solar + SIG
+                    icon: mdi:weather-night
+                    layout: vertical
+                    icon_color: |
+                      {% if is_state(
+                        'select.tesla_solar_controller_charging_mode',
+                        'Solar + off-peak'
+                      ) %}
+                        blue
+                      {% else %}
+                        disabled
+                      {% endif %}
+                    tap_action:
+                      action: perform-action
+                      perform_action: select.select_option
+                      target:
+                        entity_id: select.tesla_solar_controller_charging_mode
+                      data:
+                        option: Solar + off-peak
+                    card_mod:
+                      style: |
+                        ha-card {
+                          {% if is_state(
+                            'select.tesla_solar_controller_charging_mode',
+                            'Solar + off-peak'
+                          ) %}
+                            background: rgba(33, 150, 243, 0.22);
+                            border: 2px solid rgb(33, 150, 243);
+                            box-shadow: 0 0 10px rgba(33, 150, 243, 0.35);
+                          {% else %}
+                            opacity: 0.65;
+                          {% endif %}
+                        }
+                  - type: custom:mushroom-template-card
+                    entity: select.tesla_solar_controller_charging_mode
+                    primary: ASAP
+                    secondary: 100% · 10 A
+                    icon: mdi:lightning-bolt
+                    layout: vertical
+                    icon_color: |
+                      {% if is_state(
+                        'select.tesla_solar_controller_charging_mode',
+                        'Charge ASAP'
+                      ) %}
+                        red
+                      {% else %}
+                        disabled
+                      {% endif %}
+                    tap_action:
+                      action: perform-action
+                      perform_action: select.select_option
+                      target:
+                        entity_id: select.tesla_solar_controller_charging_mode
+                      data:
+                        option: Charge ASAP
+                    card_mod:
+                      style: |
+                        ha-card {
+                          {% if is_state(
+                            'select.tesla_solar_controller_charging_mode',
+                            'Charge ASAP'
+                          ) %}
+                            background: rgba(244, 67, 54, 0.22);
+                            border: 2px solid rgb(244, 67, 54);
+                            box-shadow: 0 0 10px rgba(244, 67, 54, 0.35);
+                          {% else %}
+                            opacity: 0.65;
+                          {% endif %}
+                        }
+                  - type: custom:mushroom-template-card
+                    entity: switch.all_house_tesla_solar_controller_enabled
+                    primary: |
+                      {% if is_state(
+                        'switch.all_house_tesla_solar_controller_enabled',
+                        'off'
+                      ) %}
+                        LOGIC OFF
+                      {% else %}
+                        Controller
+                      {% endif %}
+                    secondary: |
+                      {% if is_state(
+                        'switch.all_house_tesla_solar_controller_enabled',
+                        'off'
+                      ) %}
+                        Disabled
+                      {% else %}
+                        Logic enabled
+                      {% endif %}
+                    icon: mdi:power
+                    layout: vertical
+                    icon_color: |
+                      {% if is_state(
+                        'switch.all_house_tesla_solar_controller_enabled',
+                        'off'
+                      ) %}
+                        red
+                      {% else %}
+                        green
+                      {% endif %}
+                    tap_action:
+                      action: toggle
+                    card_mod:
+                      style: |
+                        ha-card {
+                          {% if is_state(
+                            'switch.all_house_tesla_solar_controller_enabled',
+                            'off'
+                          ) %}
+                            background: rgba(244, 67, 54, 0.22);
+                            border: 2px solid rgb(244, 67, 54);
+                            box-shadow: 0 0 10px rgba(244, 67, 54, 0.35);
+                          {% else %}
+                            background: rgba(76, 175, 80, 0.12);
+                            border: 2px solid rgba(76, 175, 80, 0.55);
+                          {% endif %}
+                        }
+              - type: custom:mushroom-template-card
+                entity: sensor.tesla_solar_controller_status
+                primary: Tesla charging controller
+                secondary: "{{ states('sensor.tesla_solar_controller_status') }}"
+                icon: mdi:car-electric
+                icon_color: "{{ 'green' if is_state('binary_sensor.tesla_solar_controller_charging', 'on') else 'disabled' }}"
+                multiline_secondary: true
+                tap_action:
+                  action: more-info
+              - type: grid
+                columns: 2
+                square: false
+                cards:
+                  - type: custom:mushroom-template-card
+                    entity: sensor.sig_p1_meter_grid_net_power
+                    primary: P1 grid power
+                    secondary: >-
+                      {% set p = states('sensor.sig_p1_meter_grid_net_power') %}
+                      {% if not is_number(p) %}Unavailable · off-peak fallback
+                      {% elif p | float < 0 %}{{ (0 - p | float) | round(0) | int }} W export
+                      {% else %}{{ p | float | round(0) | int }} W import{% endif %}
+                    icon: mdi:transmission-tower
+                    icon_color: >-
+                      {% set p = states('sensor.sig_p1_meter_grid_net_power') %}
+                      {{ 'disabled' if not is_number(p) else ('green' if p | float < 0 else 'orange') }}
+                    tap_action:
+                      action: more-info
+                  - type: custom:mushroom-template-card
+                    entity: sensor.tesla_solar_controller_sleep_status
+                    primary: Vehicle
+                    secondary: "{{ states('sensor.tesla_solar_controller_sleep_status') }}"
+                    icon: mdi:car-connected
+                    icon_color: "{{ 'green' if is_state('sensor.tesla_solar_controller_sleep_status', 'Awake') else 'blue' }}"
+                    tap_action:
+                      action: more-info
+              - type: glance
+                title: Charging now
+                columns: 3
+                show_name: true
+                entities:
+                  - entity: sensor.tesla_solar_controller_battery_level
+                    name: Battery
+                  - entity: sensor.tesla_solar_controller_target_soc
+                    name: Target
+                  - entity: sensor.tesla_solar_controller_charge_limit
+                    name: Vehicle limit
+                  - entity: sensor.tesla_solar_controller_charge_current
+                    name: Current
+                  - entity: sensor.tesla_solar_controller_live_charging_power
+                    name: Charging power
+                  - entity: binary_sensor.tesla_solar_controller_charging
+                    name: Charging
+              - type: grid
+                columns: 3
+                square: false
+                cards:
+                  - type: custom:mushroom-template-card
+                    entity: sensor.tesla_solar_controller_status
+                    primary: Daily wakes
+                    secondary: >-
+                      {% set n = state_attr('sensor.tesla_solar_controller_status', 'wakes_today') %}
+                      {{ 'Pending update' if n is none else (n | string) ~ ' / 2' }}
+                    icon: mdi:sleep-off
+                    icon_color: >-
+                      {% set n = state_attr('sensor.tesla_solar_controller_status', 'wakes_today') %}
+                      {{ 'disabled' if n is none else ('red' if n | int >= 2 else 'blue') }}
+                    layout: vertical
+                    tap_action:
+                      action: more-info
+                  - type: custom:mushroom-template-card
+                    entity: sensor.tesla_solar_controller_status
+                    primary: Daily commands
+                    secondary: >-
+                      {% set n = state_attr('sensor.tesla_solar_controller_status', 'commands_today') %}
+                      {{ 'Pending update' if n is none else (n | string) ~ ' / 150' }}
+                    icon: mdi:counter
+                    icon_color: >-
+                      {% set n = state_attr('sensor.tesla_solar_controller_status', 'commands_today') %}
+                      {{ 'disabled' if n is none else ('red' if n | int >= 150 else 'blue') }}
+                    layout: vertical
+                    tap_action:
+                      action: more-info
+                  - type: custom:mushroom-template-card
+                    entity: sensor.tesla_solar_controller_status
+                    primary: Solar starts
+                    secondary: >-
+                      {% set n = state_attr('sensor.tesla_solar_controller_status', 'solar_sessions_today') %}
+                      {{ 'Pending update' if n is none else (n | string) ~ ' / 2' }}
+                    icon: mdi:solar-power
+                    icon_color: >-
+                      {% set n = state_attr('sensor.tesla_solar_controller_status', 'solar_sessions_today') %}
+                      {{ 'disabled' if n is none else ('red' if n | int >= 2 else 'blue') }}
+                    layout: vertical
+                    tap_action:
+                      action: more-info
+              - type: markdown
+                title: P1 charging rules
+                content: |-
+                  {% if state_attr('sensor.tesla_solar_controller_status', 'commands_today') is none %}
+                  **Controller update pending.** These rules and daily counters activate after installing controller v0.2.0.
+
+                  {% endif %}
+                  **Solar:** start at **5 A** after **30 min** of continuous export covering 5 A + 200 W. No starting-hour restriction.
+
+                  **Regulation:** **5–10 A**, whole-amp changes, at least **5 min** between adjustments.
+
+                  **Clouds:** stop after **30 min** importing **≥300 W at 5 A**. Then **60 min** cooldown and a fresh 30 min qualification.
+
+                  **Missing P1:** charge only during the configured off-peak hours. **ASAP:** 100% at 10 A.
+
+                  {% set day = state_attr('sensor.tesla_solar_controller_status', 'budget_day') %}
+                  {% if day is not none %}
+                  **Budget date:** {{ day }} · resets at local midnight. Failed attempts count; the final command is reserved for stopping.
+                  {% endif %}
+                  {% set until = state_attr('sensor.tesla_solar_controller_status', 'cooldown_until') %}
+                  {% if until is not none and as_timestamp(until, 0) > as_timestamp(now()) %}
+                  **Solar cooldown until {{ as_timestamp(until) | timestamp_custom('%H:%M') }}.**
+                  {% endif %}
+              - type: history-graph
+                title: P1 net power · negative = export
+                hours_to_show: 12
+                entities:
+                  - entity: sensor.sig_p1_meter_grid_net_power
+                    name: P1 net power
+          - type: glance
+            title: Tesla charging today
+            columns: 4
+            show_name: true
+            show_icon: true
+            show_state: true
+            entities:
+              - entity: sensor.tesla_charged_today
+                name: Total
+                icon: mdi:ev-station
+              - entity: sensor.tesla_solar_charged_today
+                name: Solar
+                icon: mdi:white-balance-sunny
+              - entity: sensor.tesla_off_peak_charged_today
+                name: Off-peak
+                icon: mdi:weather-night
+              - entity: sensor.tesla_peak_charged_today
+                name: Peak
+                icon: mdi:transmission-tower
+              - entity: sensor.tesla_solar_percentage_today
+                name: Solar %
+                icon: mdi:percent
+              - entity: sensor.tesla_charging_cost_today
+                name: Cost
+                icon: mdi:cash
+              - entity: sensor.tesla_charging_savings_today
+                name: Saved
+                icon: mdi:piggy-bank
+          - type: custom:apexcharts-card
+            graph_span: 30d
+            span:
+              end: day
+            header:
+              show: true
+              title: Charging source
+              show_states: false
+            apex_config:
+              chart:
+                stacked: true
+                height: 260
+              legend:
+                show: true
+                position: top
+              plotOptions:
+                bar:
+                  columnWidth: 75%
+              yaxis:
+                min: 0
+                decimalsInFloat: 1
+                title:
+                  text: kWh
+            series:
+              - entity: sensor.tesla_solar_charged_today
+                name: Solar
+                type: column
+                color: '#f6a800'
+                group_by:
+                  duration: 1d
+                  func: max
+              - entity: sensor.tesla_off_peak_charged_today
+                name: Off-peak
+                type: column
+                color: '#4267b2'
+                group_by:
+                  duration: 1d
+                  func: max
+              - entity: sensor.tesla_peak_charged_today
+                name: Peak
+                type: column
+                color: '#d84a4a'
+                group_by:
+                  duration: 1d
+                  func: max
+          - type: custom:apexcharts-card
+            graph_span: 30d
+            span:
+              end: day
+            header:
+              show: true
+              title: Charging economics
+              show_states: false
+            apex_config:
+              chart:
+                height: 220
+              legend:
+                show: true
+                position: top
+              plotOptions:
+                bar:
+                  columnWidth: 55%
+              yaxis:
+                min: 0
+                decimalsInFloat: 1
+                title:
+                  text: CHF
+            series:
+              - entity: sensor.tesla_charging_cost_today
+                name: Cost
+                type: column
+                color: '#d84a4a'
+                group_by:
+                  duration: 1d
+                  func: max
+              - entity: sensor.tesla_charging_savings_today
+                name: Saved
+                type: column
+                color: '#4caf50'
+                group_by:
+                  duration: 1d
+                  func: max

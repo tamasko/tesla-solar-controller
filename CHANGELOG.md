@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.2.0 — 2026-10-18
+
+- Replace solar/vehicle-power averages and production gates with direct SIG P1 export/import control; remove Forecast.Solar entirely.
+- Require 30 minutes of export covering 5 A plus 200 W before every solar start, including fresh plug-ins. Keep configurable normal SOC and restart hysteresis.
+- Enforce 5–10 A; allow whole-amp steps larger than 1 A with five minutes between solar adjustments. Stop after 30 continuous minutes of at least 300 W import at 5 A.
+- Add a 60-minute solar cooldown and at most two solar start attempts per day.
+- Persist daily limits of two wake attempts and 150 command attempts across all modes, counting failures/retries and reserving the final command for a stop. Remove forced Tesla refreshes.
+- Keep Solar only, Solar + off-peak and Charge ASAP (100% at 10 A). Missing P1 falls back to the off-peak schedule in both solar modes.
+- Remove accessory power, battery maintenance, forecast buffering and obsolete graph settings and entities. Retain optional charging notifications. Automatically migrate existing configuration.
+- Add state-machine coverage for timing, budgets, restarts, missing data, command races and master-switch safety.
+
+
 ## 0.1.12 — 2026-09-18
 
 - Add graphable, time-weighted 5-minute averages for solar production, P1 grid

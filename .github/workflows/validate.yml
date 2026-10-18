@@ -25,3 +25,22 @@ jobs:
 
       - name: Hassfest validation
         uses: home-assistant/actions/hassfest@master
+
+  test-controller:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+      - name: Controller state-machine tests
+        run: python3 -m unittest discover -s tests -v
+      - name: Compile integration
+        run: python3 -m compileall -q custom_components/tesla_solar_controller
+      - name: Parse JSON
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          for path in Path('.').rglob('*.json'):
+              if '.git' not in path.parts:
+                  json.loads(path.read_text())
+          PY
