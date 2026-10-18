@@ -2,7 +2,7 @@
 
 DOMAIN = "tesla_solar_controller"
 NAME = "Tesla Solar Controller"
-VERSION = "0.2.1"
+VERSION = "0.2.2"
 CONF_VEHICLE_STATUS = "vehicle_status"
 CONF_WAKE_BUTTON = "wake_button"
 CONF_BATTERY_LEVEL = "battery_level"

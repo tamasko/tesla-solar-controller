@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.2 — 2026-10-18
+
+- Make both branding icons transparent, including the emblem's interior cutouts, for light and dark interfaces.
+
 ## 0.2.1 — 2026-10-18
 
 - Replace the blue-car branding with a Tesla-inspired red solar-charging emblem, packaged as 256 px and 512 px integration icons.

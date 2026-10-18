@@ -62,7 +62,7 @@ The Status sensor exposes today's commands, wakes and solar sessions, budget dat
 
 ## Branding
 
-The red solar-charging emblem ships in `custom_components/tesla_solar_controller/brand/` as `icon.png` (256 px) and `icon@2x.png` (512 px), following [Home Assistant's local branding convention](https://contributors.home-assistant.io/blog/2026/02/24/brands-proxy-api/). Install the new integration version and restart Home Assistant to load the packaged assets.
+The red solar-charging emblem has a transparent background and ships in `custom_components/tesla_solar_controller/brand/` as `icon.png` (256 px) and `icon@2x.png` (512 px), following [Home Assistant's local branding convention](https://contributors.home-assistant.io/blog/2026/02/24/brands-proxy-api/). Install the new integration version and restart Home Assistant to load the packaged assets.
 
 Some HACS versions display "Icon not available" despite valid local branding; see [HACS issue #5402](https://github.com/hacs/integration/issues/5402). Changing these files cannot fix that frontend issue. Artwork generation details are in [the branding notes](docs/branding.md).
 
