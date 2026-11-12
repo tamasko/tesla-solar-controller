@@ -52,7 +52,7 @@ class TeslaStatusSensor(TeslaSolarControllerEntity, SensorEntity):
             "charge_cable_connected": self.controller.charge_cable_connected,
             "budget_day": self.controller.budget_day,
             "commands_today": self.controller.daily_commands,
-            "wakes_today": self.controller.daily_wakes,
+            **self.controller.wake_diagnostics,
             "solar_sessions_today": self.controller.daily_solar_sessions,
             "session_kind": self.controller.session_kind,
             "starting": self.controller.starting,

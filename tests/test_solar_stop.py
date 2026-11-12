@@ -44,7 +44,10 @@ def controller_type(clock):
         CONSTANTS,
         Store=FakeStore,
         callback=lambda f: f,
-        dt_util=SimpleNamespace(utcnow=lambda: clock.now, now=lambda: clock.now),
+        dt_util=SimpleNamespace(
+            utcnow=lambda: clock.now,
+            now=lambda: clock.now.astimezone(getattr(clock, "time_zone", timezone.utc)),
+        ),
     )
     exec(compile(tree, str(ROOT / "controller.py"), "exec"), ns)
     return ns["TeslaSolarController"]
@@ -261,6 +264,7 @@ class ControllerTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.calls[-1][1], "turn_off")
 
     async def test_two_wake_attempts_including_service_errors(self):
+        self.c.mode = "Charge ASAP"
         self.states["vehicle_status"] = "off"
         self.fail_service = True
         with self.assertLogs(level="ERROR"):
@@ -378,6 +382,7 @@ class ControllerTest(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(self.c._unconfirmed_start())
 
     async def test_daily_rollover_replenishes_wake_retries(self):
+        self.c.mode = "Charge ASAP"
         self.states["vehicle_status"] = "off"
         await self.c._dispatch("wake", "on")
         self.clock.now += timedelta(seconds=720)
@@ -400,12 +405,12 @@ class ControllerTest(unittest.IsolatedAsyncioTestCase):
         await self.tick(vehicle_status="on")
         self.assertEqual(self.calls[-1][2]["value"], 10)
 
-    async def test_solar_preparation_exhausted_wakes_enters_cooldown(self):
+    async def test_solar_preparation_reserves_final_wake_and_enters_cooldown(self):
         await self.tick(vehicle_status="off")
         await self.tick(1800)
         await self.tick(720)
         await self.tick(120)
-        self.assertEqual(self.c.daily_wakes, 2)
+        self.assertEqual(self.c.daily_wakes, 1)
         self.assertFalse(self.c.starting)
         self.assertIsNotNone(self.c.cooldown_until)
 
@@ -471,6 +476,7 @@ class ControllerTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Insufficient", self.c.status)
 
     async def test_successful_wake_allows_time_for_normal_fleet_poll_before_retry(self):
+        self.c.mode = "Charge ASAP"
         self.states["vehicle_status"] = "off"
         await self.c._dispatch("wake", "on")
         self.clock.now += timedelta(seconds=120)

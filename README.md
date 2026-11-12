@@ -28,11 +28,11 @@ P1 shows current surplus, not future sunshine. The sustained-export hold and ses
 
 Solar and off-peak use the configurable normal target (80% default). Off-peak starts at 5 A and then uses its configured 5–10 A current (8 A default). When a grid-charging window ends or missing P1 recovers in Solar only, stop grid charging before qualifying a new solar start.
 
-The retained default schedule is weekdays before 07:00 and from 22:00; weekends before 17:00 and from 22:00. Hours use Home Assistant's timezone. Change these in Configure if needed. Missing P1 stops an active solar charge outside this schedule; it never triggers immediate unrestricted grid charging. Accessory power, battery maintenance, forecast buffering have been removed. Optional charging notifications remain configurable through a HA notify service.
+The retained default schedule is weekdays before 07:00 and from 22:00; weekends before 17:00 and from 22:00. Hours use Home Assistant's timezone. In Solar + off-peak, plugging in at 19:00 on a weekday without qualified P1 export stays in standby until 22:00 and sends no Tesla commands during that wait. Change these in Configure if needed. Missing P1 stops an active solar charge outside this schedule; it never triggers immediate unrestricted grid charging. Accessory power, battery maintenance, forecast buffering have been removed. Optional charging notifications remain configurable through a HA notify service.
 
 ## Daily Tesla budgets and safety
 
-- **Two wake attempts and 150 command attempts per HA-local calendar day**, across all three modes. Wakes count toward both budgets. Failed service calls and retries count too.
+- **Two wake attempts and 150 command attempts per HA-local calendar day**, across all three modes. Wakes count toward both budgets. Failed service calls and retries count too. Discretionary solar wakes may use only the first allowance; the final wake is reserved for scheduled off-peak charging (including missing-P1 fallback) or Charge ASAP. Already-awake solar starts still have up to two solar session attempts. Scheduled/ASAP wakes remain subject to the global two-wake limit; there is no extra wake allowance.
 - Counter reservations and retry records are saved **before dispatch**. Reloading, restarting or toggling Enabled does not restore allowance. If storage fails, that command is blocked. The final command is reserved for stopping; reaching 149 attempts stops an active charge instead of continuing regulation. New sessions require at least five commands of headroom.
 - Commands to other integrations or the Tesla app are outside this integration's accounting. A HA service invocation is counted as one attempt; internal Fleet polling, automatic wakes and transport retries are outside its visibility. These are controller dispatch limits, not a global Tesla API request meter.
 - No forced Tesla refreshes are issued. Wake preparation waits for the existing Fleet entities to report the vehicle awake; it never starts on a wake timeout alone. After a successful wake service call, wait at least 12 minutes before another wake attempt to allow normal Fleet polling to catch up.
@@ -58,7 +58,42 @@ Existing Enabled, charging mode, battery/current/limit/status, charging binary s
 
 The live Tesla dashboard configuration is saved in `dashboards/tesla.yaml`. It uses the installation's actual Enabled entity ID (`switch.all_house_tesla_solar_controller_enabled`), P1 net-power history and daily allowance cards. Until v0.2.0 is installed, the counters show "Pending update". Existing charging-energy and cost charts are retained.
 
-The Status sensor exposes today's commands, wakes and solar sessions, budget date, session type, preparation state and cooldown deadline. Diagnostics include persisted command retry records. Reload resets continuous qualification timers; unfinished solar preparation restarts conservatively after cooldown. Daily counters and active-session identity survive reloads.
+The Status sensor and downloadable diagnostics expose today's wake reservations (`wakes_today`), `wake_limit`, `last_wake_reason` (`solar`, `offpeak`, or `asap`), `last_wake_time` (UTC), `next_budget_reset` (local midnight with offset), and `budget_timezone`. A reservation counts even if dispatch fails or a safety gate cancels it. Older stored wakes have no reason until the next reservation. The Status sensor also exposes today's commands and solar sessions, budget date, session type, preparation state and cooldown deadline. Diagnostics include persisted command retry records.
+
+Counters roll forward at HA-local midnight on the next evaluation (normally within 30 seconds), and during initialization before entities are exposed. Configure HA's timezone as **Europe/Zurich** for Zurich midnight and the 22:00 Zurich schedule; the integration does not hard-code a timezone. Obsolete budget status clears on rollover. A future persisted budget date is retained on clock rollback, with the reset deferred until midnight after that date to avoid restoring used allowance. Reload resets continuous qualification timers; unfinished solar preparation restarts conservatively after cooldown. Daily counters and active-session identity survive same-day reloads. See the [wake-budget audit](docs/wake-budget-audit.md) for the full trace and failure analysis.
+
+## Activity log
+
+The bottom of `dashboards/tesla.yaml` has a **Show activity log** button.
+After installing these changes and restarting HA, open it as a Home Assistant
+administrator to view the saved log at `/tesla-solar-controller-log`. Use
+**Refresh log** for new entries or **Download log file** for the retained history.
+Apply the updated dashboard YAML to an existing storage-mode dashboard; installing
+the integration does not rewrite a dashboard saved in HA's UI.
+
+The file is `tesla_solar_controller.log` in HA's configuration directory (normally
+`/config/tesla_solar_controller.log`). It appends across restarts and integration
+reloads, rotates at 1 MiB and retains three backups (`.1` through `.3`). The viewer
+includes all retained files, oldest first. Logs begin after installation; older
+actions cannot be reconstructed. All configured controller entries share the file
+and each record identifies its config entry.
+
+Each JSON line contains an HA-local timestamp with timezone offset and a snapshot
+of mode, Enabled, cable, awake/charging state, SOC/target, current, P1 power,
+session, cooldown and daily counters. Events cover command requests, reservations,
+HA service dispatch/results, duplicate suppression, budget/safety blocks,
+confirmed entity feedback, mode/Enabled/options changes, vehicle entity changes,
+status changes, day resets, notifications, and controller startup/shutdown/errors.
+A successful service result is logged separately from positive vehicle feedback.
+Service failures record the exception type; the main Home Assistant log retains
+the traceback. Repeated unchanged status and high-frequency P1/voltage samples are
+omitted; their current readings accompany each activity event.
+
+File writes run in a background logging thread. Reading/refreshing/downloading
+uses local files only and makes no Tesla call or forced refresh. The log data is
+served through an authenticated, administrator-only HA WebSocket command; it is
+not published under `/local`. File logging failures do not disable charging safety
+checks or trigger extra commands. The existing daily allowances are unchanged.
 
 ## Branding
 
@@ -74,6 +109,7 @@ Single Tesla, single-phase L2 charging. Validate locally with:
 
 ```sh
 python3 -m unittest discover -s tests -v
+node --test tests/test_log_panel.cjs
 python3 -m compileall -q custom_components/tesla_solar_controller
 python3 -c 'import json, pathlib; [json.loads(p.read_text()) for p in pathlib.Path(".").rglob("*.json") if ".git" not in p.parts]'
 git diff --check

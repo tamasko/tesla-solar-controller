@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from math import ceil, floor, isfinite
 
 from homeassistant.core import callback
@@ -65,9 +65,11 @@ _LOGGER = logging.getLogger(__name__)
 class TeslaSolarController:
     """Control existing Fleet entities; never poll or refresh Tesla forcibly."""
 
-    def __init__(self, hass, entry) -> None:
+    def __init__(self, hass, entry, *, activity_log=None) -> None:
         self.hass = hass
         self.entry = entry
+        self._activity_log = activity_log
+        self._last_logged_status = None
         self.options = dict(DEFAULT_OPTIONS) | dict(entry.options)
         self._store = Store(
             hass, STORAGE_VERSION, f"{STORAGE_KEY_PREFIX}.{entry.entry_id}"
@@ -98,6 +100,47 @@ class TeslaSolarController:
         self._increase_since = self._decrease_since = None
         self._commands = {}
         self._observed_charging = None
+
+    def _activity(self, event, **details):
+        """Record decisions without IO waits, service calls, or control side effects."""
+        if self._activity_log is None:
+            return
+        try:
+            self._activity_log.record({
+                "time": dt_util.now().isoformat(),
+                "event": event,
+                "entry_id": self.entry.entry_id,
+                "mode": self.mode,
+                "enabled": self.controller_enabled,
+                "status": self.display_status,
+                "cable_connected": self.charge_cable_connected,
+                "awake": self.is_awake,
+                "charging": self.is_charging,
+                "session": self.session_kind,
+                "starting": self.starting,
+                "stopping": self.stopping,
+                "battery_pct": self.last_battery_pct,
+                "target_soc": self.target_soc,
+                "current_a": self.charge_current_a,
+                "p1_w": self.grid_net_power_w,
+                "budget_day": self.budget_day,
+                "commands_today": self.daily_commands,
+                "wakes_today": self.daily_wakes,
+                "solar_sessions_today": self.daily_solar_sessions,
+                "cooldown_until": (
+                    self.cooldown_until.isoformat() if self.cooldown_until else None
+                ),
+                **details,
+            })
+        except Exception:
+            # Disk/logging failures must not change command or safety behavior.
+            _LOGGER.exception("Cannot enqueue controller activity")
+
+    def _record_status(self, reason):
+        state = (self.display_status, self.session_kind, self.starting, self.stopping)
+        if state != self._last_logged_status:
+            self._last_logged_status = state
+            self._activity("status_changed", reason=reason)
 
     @property
     def data(self):
@@ -218,6 +261,26 @@ class TeslaSolarController:
             self.status if self.controller_enabled else "Disabled — no Tesla commands"
         )
 
+    @property
+    def wake_diagnostics(self):
+        """Report reservations and the next HA-local calendar reset, without IO."""
+        now = dt_util.now()
+        reset_day = max(
+            now.date(), date.fromisoformat(self.budget_day or now.date().isoformat())
+        )
+        reset = datetime.combine(
+            reset_day + timedelta(days=1), time(), tzinfo=now.tzinfo
+        )
+        record = self._commands.get("wake:on", {})
+        return {
+            "wakes_today": self.daily_wakes,
+            "wake_limit": MAX_DAILY_WAKES,
+            "last_wake_reason": record.get("reason"),
+            "last_wake_time": record.get("sent"),
+            "next_budget_reset": reset.isoformat(),
+            "budget_timezone": str(now.tzinfo),
+        }
+
     def _refresh_cache(self):
         for key, attr in (
             (CONF_BATTERY_LEVEL, "last_battery_pct"),
@@ -255,6 +318,7 @@ class TeslaSolarController:
         self.cooldown_until = self._date(saved.get("cooldown_until"))
         self._last_adjustment = self._date(saved.get("last_adjustment"))
         self._commands = saved.get("commands", {})
+        self._roll_day()
         self._refresh_cache()
         self._observed_charging = self._state(self.data.get(CONF_CHARGE_SWITCH))
         # Reload must not recreate a qualified start from incomplete history.
@@ -265,8 +329,11 @@ class TeslaSolarController:
                 seconds=SOLAR_COOLDOWN_SECONDS
             )
         await self._async_save()
+        self._activity("controller_initialized")
+        self._record_status("initialize")
 
     async def async_start(self):
+        self._activity("controller_started")
         self._active = True
         self._unsub_state = async_track_state_change_event(
             self.hass, self.source_entity_ids, self._changed
@@ -286,20 +353,25 @@ class TeslaSolarController:
             self._task.cancel()
             await asyncio.gather(self._task, return_exceptions=True)
         await self._async_save()
+        self._activity("controller_stopped")
 
     async def async_options_updated(self, options):
         self.options = dict(DEFAULT_OPTIONS) | dict(options)
+        self._activity("options_changed", options=dict(self.options))
         self._epoch += 1
         self._reset_timers()
         self._schedule_evaluate("options")
 
     async def async_set_controller_enabled(self, value):
+        self._activity("enabled_requested", requested_enabled=value)
         if self.controller_enabled != value:
             self.controller_enabled = value
             self._epoch += 1
             self._reset_timers()
             # Invalidate any unfinished start without issuing a final stop.
             self.starting = False
+        self._activity("enabled_changed", enabled=self.controller_enabled)
+        self._record_status("enabled")
         self._notify()
         await self._async_save()
         if value:
@@ -307,8 +379,13 @@ class TeslaSolarController:
 
     async def async_set_mode(self, mode, **kwargs):
         if mode not in MODES:
+            self._activity("mode_rejected", requested_mode=mode)
             return
+        previous_mode = self.mode
         self.mode = mode
+        self._activity(
+            "mode_changed", previous_mode=previous_mode, changed=mode != previous_mode
+        )
         self._epoch += 1
         self.starting = False
         self._reset_timers()
@@ -327,6 +404,18 @@ class TeslaSolarController:
     @callback
     def _changed(self, event):
         self._refresh_cache()
+        entity_id = event.data.get("entity_id")
+        if entity_id not in (
+            self.data.get(CONF_GRID_NET_POWER), self.data.get(CONF_L2_VOLTAGE)
+        ):
+            old = event.data.get("old_state")
+            new = event.data.get("new_state")
+            if getattr(old, "state", None) != getattr(new, "state", None):
+                self._activity(
+                    "source_changed", entity_id=entity_id,
+                    old_state=getattr(old, "state", None),
+                    new_state=getattr(new, "state", None),
+                )
         # Observe threshold breaks immediately, including between evaluations.
         self._update_timers()
         self._schedule_evaluate("source")
@@ -347,9 +436,11 @@ class TeslaSolarController:
             self._dirty = False
             try:
                 await self.async_evaluate("scheduled")
-            except Exception:
+            except Exception as err:
+                self._activity("controller_error", error_type=type(err).__name__)
                 _LOGGER.exception("Controller evaluation failed")
                 self.status = "Controller error — see logs"
+                self._record_status("evaluation_error")
                 self._notify()
 
     def _reset_timers(self):
@@ -406,12 +497,28 @@ class TeslaSolarController:
         day = dt_util.now().date().isoformat()
         # Do not reset on clock rollback; counters survive reloads and updates.
         if day > self.budget_day:
+            previous_day = self.budget_day
+            previous_counts = {
+                "commands": self.daily_commands,
+                "wakes": self.daily_wakes,
+                "solar_sessions": self.daily_solar_sessions,
+            }
             self.budget_day = day
             self.daily_commands = self.daily_wakes = self.daily_solar_sessions = 0
+            # Status is not persisted, but an in-memory budget message may outlive
+            # the counters until evaluation completes (or if storage fails).
+            if "budget" in self.status.lower() or self.status.startswith(
+                ("Retry limit reached", "Solar wake allowance reserved")
+            ):
+                self.status = "Daily allowances reset — waiting for evaluation"
             for token, record in self._commands.items():
                 # Preserve evidence of a possibly accepted start until cancelled.
                 if token != "charge:on" or record.get("confirmed"):
                     record["attempts"] = 0
+            self._activity(
+                "daily_budget_reset", previous_day=previous_day,
+                previous_counts=previous_counts,
+            )
 
     def _solar_ready(self):
         battery = self.last_battery_pct
@@ -449,8 +556,20 @@ class TeslaSolarController:
             )
         )
 
-    async def _dispatch(self, key, desired, *, guard=None):
+    def _wake_block_reason(self, kind):
+        if self.daily_wakes >= MAX_DAILY_WAKES:
+            return "Daily wake budget reached"
+        # Both solar modes can need scheduled grid charging. Discretionary solar
+        # wakes must leave the final global allowance for off-peak (or ASAP).
+        if kind == "solar" and self.daily_wakes >= MAX_DAILY_WAKES - 1:
+            return "Solar wake allowance reserved for off-peak charging"
+        return None
+
+    async def _dispatch(self, key, desired, *, guard=None, wake_reason=None):
         """Reserve and persist every attempt BEFORE calling HA, then recheck gates."""
+        self._activity(
+            "command_requested", command=key, desired=desired, wake_reason=wake_reason
+        )
         epoch = (
             self._evaluation_epoch
             if self._evaluation_epoch is not None
@@ -475,21 +594,45 @@ class TeslaSolarController:
                     and (guard is None or guard())
                 )
 
-            if not allowed():
+            def skip(reason):
+                self._activity(
+                    "command_skipped", command=key, desired=desired,
+                    reason=reason, expected_epoch=epoch, current_epoch=self._epoch,
+                )
                 return False
+
+            def gate_reason():
+                if not self._active:
+                    return "controller_inactive"
+                if not self.controller_enabled:
+                    return "controller_disabled"
+                if epoch != self._epoch:
+                    return "control_epoch_changed"
+                if not stop and self.charge_cable_connected is not True:
+                    return "cable_not_positively_connected"
+                if stop and not (self.is_charging or self._unconfirmed_start()):
+                    return "no_active_or_unconfirmed_charge"
+                if key != "wake" and not self.is_awake:
+                    return "vehicle_not_awake"
+                return "start_conditions_changed"
+
+            if not allowed():
+                return skip(gate_reason())
             self._roll_day()
             if self.daily_commands >= MAX_DAILY_COMMANDS - (0 if stop else 1):
                 self.status = "Daily command budget reached"
-                return False
-            if key == "wake" and self.daily_wakes >= MAX_DAILY_WAKES:
-                self.status = "Daily wake budget reached"
-                return False
+                return skip("daily_command_budget")
+            if key == "wake":
+                wake_reason = wake_reason or self.grid_mode or "solar"
+                if reason := self._wake_block_reason(wake_reason):
+                    self.status = reason
+                    return skip(reason)
             if key == "current":
                 desired = max(MIN_CURRENT_A, min(MAX_CURRENT_A, int(desired)))
             if self._feedback(key) == desired and not (
                 stop and self._unconfirmed_start()
             ):
-                return False
+                return skip("feedback_already_matches")
             token = f"{key}:{desired}"
             record = self._commands.get(token, {})
             sent = self._date(record.get("sent"))
@@ -499,10 +642,14 @@ class TeslaSolarController:
                 else COMMAND_DUPLICATE_WINDOW_SECONDS
             )
             if sent and not self._held(sent, quiet_seconds):
-                return False
+                return skip(
+                    "wake_feedback_wait"
+                    if quiet_seconds == WAKE_FEEDBACK_WAIT_SECONDS
+                    else "duplicate_suppressed"
+                )
             if record.get("attempts", 0) >= COMMAND_MAX_ATTEMPTS:
                 self.status = f"Retry limit reached: {key}"
-                return False
+                return skip("retry_limit")
             self.daily_commands += 1
             if key == "wake":
                 self.daily_wakes += 1
@@ -511,17 +658,29 @@ class TeslaSolarController:
                 "attempts": record.get("attempts", 0) + 1,
                 "confirmed": False,
             }
+            if key == "wake":
+                self._commands[token]["reason"] = wake_reason
             if key == "current":
                 self._last_adjustment = dt_util.utcnow()
+            self._activity(
+                "command_reserved", command=key, desired=desired,
+                attempt=self._commands[token]["attempts"], wake_reason=wake_reason,
+            )
             try:
                 await self._async_save()
-            except Exception:
+            except Exception as err:
+                self._activity(
+                    "command_storage_failed", command=key, desired=desired,
+                    error_type=type(err).__name__,
+                )
                 self.status = "Storage unavailable — command blocked"
                 _LOGGER.exception("Cannot persist command reservation")
                 return False
             # A reservation from yesterday must not dispatch against today's cap.
-            if not allowed() or dt_util.now().date().isoformat() > self.budget_day:
-                return False
+            if not allowed():
+                return skip("after_reservation: " + gate_reason())
+            if dt_util.now().date().isoformat() > self.budget_day:
+                return skip("day_changed_during_reservation")
             if key == "wake":
                 domain, service, data = (
                     "button",
@@ -542,14 +701,33 @@ class TeslaSolarController:
                     ],
                     "value": desired,
                 }
+            self._activity(
+                "command_dispatch", command=key, desired=desired,
+                service=f"{domain}.{service}", service_data=data,
+                wake_reason=wake_reason,
+            )
             try:
                 await self.hass.services.async_call(
                     domain, service, data, blocking=True
                 )
-            except Exception:
+            except asyncio.CancelledError:
+                self._activity(
+                    "command_cancelled", command=key, desired=desired,
+                    reason="service_outcome_unknown",
+                )
+                raise
+            except Exception as err:
+                self._activity(
+                    "command_failed", command=key, desired=desired,
+                    error_type=type(err).__name__,
+                )
                 _LOGGER.exception("Tesla command failed: %s", key)
                 return False
             self._commands[token]["succeeded"] = True
+            self._activity(
+                "command_succeeded", command=key, desired=desired,
+                meaning="HA service returned; awaiting entity feedback",
+            )
             return True
 
     def _observe_feedback(self):
@@ -557,6 +735,8 @@ class TeslaSolarController:
             key, raw = token.split(":", 1)
             desired = raw if key in ("wake", "charge") else float(raw)
             if self._feedback(key) == desired:
+                if not record.get("confirmed"):
+                    self._activity("command_confirmed", command=key, desired=desired)
                 record["confirmed"] = True
             elif record.get("confirmed"):
                 # A confirmed command followed by real divergence is a new episode.
@@ -599,8 +779,8 @@ class TeslaSolarController:
         def guard():
             return self._start_allowed(kind)
 
-        if not self.is_awake and self.daily_wakes >= MAX_DAILY_WAKES:
-            self.status = "Daily wake budget reached"
+        if not self.is_awake and (reason := self._wake_block_reason(kind)):
+            self.status = reason
             if self.starting:
                 await self._abort_exhausted_start("wake", "on")
             return
@@ -619,7 +799,7 @@ class TeslaSolarController:
         if not guard():
             return
         if not self.is_awake:
-            await self._dispatch("wake", "on", guard=guard)
+            await self._dispatch("wake", "on", guard=guard, wake_reason=kind)
             await self._abort_exhausted_start("wake", "on")
             return
         amps = MAX_CURRENT_A if kind == "asap" else MIN_CURRENT_A
@@ -635,9 +815,17 @@ class TeslaSolarController:
     async def _abort_exhausted_start(self, key, desired):
         record = self._commands.get(f"{key}:{desired}", {})
         sent = self._date(record.get("sent"))
+        quiet_seconds = (
+            WAKE_FEEDBACK_WAIT_SECONDS
+            if key == "wake" and record.get("succeeded")
+            else COMMAND_DUPLICATE_WINDOW_SECONDS
+        )
+        exhausted = record.get("attempts", 0) >= COMMAND_MAX_ATTEMPTS or (
+            key == "wake" and self._wake_block_reason(self.session_kind) is not None
+        )
         if (
-            record.get("attempts", 0) < COMMAND_MAX_ATTEMPTS
-            or not self._held(sent, COMMAND_DUPLICATE_WINDOW_SECONDS)
+            not exhausted
+            or not self._held(sent, quiet_seconds)
             or self._feedback(key) == desired
         ):
             return
@@ -706,6 +894,7 @@ class TeslaSolarController:
             await self._evaluate()
         finally:
             self._evaluation_epoch = None
+            self._record_status(reason)
             await self._async_save()
             await self._notify_charge_transition()
             self._notify()
@@ -716,6 +905,8 @@ class TeslaSolarController:
         if state not in ("on", "off"):
             return
         previous, self._observed_charging = self._observed_charging, state
+        if previous in ("on", "off") and previous != state:
+            self._activity("charging_state_changed", previous_state=previous, new_state=state)
         service_ref = str(self.options.get(OPT_NOTIFY_SERVICE, "")).strip()
         if (
             not self.controller_enabled
@@ -726,6 +917,7 @@ class TeslaSolarController:
         domain, _, service = service_ref.partition(".")
         if domain != "notify" or not service:
             return
+        self._activity("notification_dispatch", service=service_ref)
         try:
             await self.hass.services.async_call(
                 domain,
@@ -736,8 +928,11 @@ class TeslaSolarController:
                 },
                 blocking=True,
             )
-        except Exception:
+        except Exception as err:
+            self._activity("notification_failed", error_type=type(err).__name__)
             _LOGGER.exception("Charging notification failed")
+        else:
+            self._activity("notification_succeeded", service=service_ref)
 
     async def _evaluate(self):
         if not self.controller_enabled:
@@ -829,7 +1024,11 @@ class TeslaSolarController:
             self.status = (
                 "P1 unavailable — waiting for off-peak hours"
                 if self.grid_net_power_w is None
-                else "Waiting for sustained P1 export / SOC / cooldown / daily allowance"
+                else (
+                    "Standby — waiting for off-peak hours or qualified P1 export"
+                    if self.mode == MODE_SOLAR_OFFPEAK and self.grid_mode is None
+                    else "Waiting for sustained P1 export / SOC / cooldown / daily allowance"
+                )
             )
 
     async def _async_save(self):

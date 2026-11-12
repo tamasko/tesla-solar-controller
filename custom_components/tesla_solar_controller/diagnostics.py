@@ -23,7 +23,7 @@ async def async_get_config_entry_diagnostics(
         "grid_net_power_w": c.grid_net_power_w,
         "budget_day": c.budget_day,
         "commands_today": c.daily_commands,
-        "wakes_today": c.daily_wakes,
+        **c.wake_diagnostics,
         "solar_sessions_today": c.daily_solar_sessions,
         "cooldown_until": c.cooldown_until.isoformat() if c.cooldown_until else None,
         "commands": c._commands,

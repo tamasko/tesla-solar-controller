@@ -399,3 +399,12 @@ views:
                 group_by:
                   duration: 1d
                   func: max
+          - type: button
+            name: Show activity log
+            icon: mdi:text-box-search-outline
+            show_name: true
+            show_icon: true
+            show_state: false
+            tap_action:
+              action: navigate
+              navigation_path: /tesla-solar-controller-log

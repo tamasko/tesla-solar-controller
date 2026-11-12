@@ -6,7 +6,9 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 
+from .const import DOMAIN
 from .controller import TeslaSolarController
+from .log_view import async_setup_activity_log
 
 PLATFORMS: list[Platform] = [
     Platform.SENSOR,
@@ -16,6 +18,12 @@ PLATFORMS: list[Platform] = [
 ]
 
 type TeslaSolarConfigEntry = ConfigEntry[TeslaSolarController]
+
+
+async def async_setup(hass: HomeAssistant, config) -> bool:
+    """Set up the shared activity file and its authenticated viewer."""
+    await async_setup_activity_log(hass)
+    return True
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: TeslaSolarConfigEntry) -> bool:
@@ -36,7 +44,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: TeslaSolarConfigEntry) -
     for entity in er.async_entries_for_config_entry(registry, entry.entry_id):
         if entity.unique_id in obsolete_ids:
             registry.async_remove(entity.entity_id)
-    controller = TeslaSolarController(hass, entry)
+    controller = TeslaSolarController(
+        hass, entry, activity_log=hass.data[DOMAIN]["activity_log"]
+    )
     await controller.async_initialize()
     entry.runtime_data = controller
 

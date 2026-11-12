@@ -48,7 +48,7 @@
     "step": {
       "init": {
         "title": "Controller settings",
-        "description": "Solar starts require 30 minutes of P1 export covering 5 A + 200 W. Stop after 30 continuous minutes importing at least 300 W at 5 A. Starts have no time-of-day restriction. Missing P1 data falls back to off-peak hours in both solar modes. Daily limits: 2 wakes, 2 solar sessions, 150 commands.",
+        "description": "Solar starts require 30 minutes of P1 export covering 5 A + 200 W. Stop after 30 continuous minutes importing at least 300 W at 5 A. Starts have no time-of-day restriction. Missing P1 data falls back to off-peak hours in both solar modes. Daily limits: 2 wakes, 2 solar sessions, 150 commands. The final wake is reserved for off-peak or Charge ASAP; solar may use only the first wake allowance. Counters reset at HA-local midnight.",
         "data": {
           "normal_target_soc": "Normal target SOC (%)",
           "solar_wake_delta_soc": "Solar restart SOC hysteresis (percentage points)",

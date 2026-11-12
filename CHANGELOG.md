@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Add a rotating local activity file for controller commands, wakes, mode/Enabled/options changes, feedback, safety/budget decisions and errors. Add an administrator-only viewer with refresh/download and a link at the bottom of the Tesla dashboard. File logging adds no Tesla commands and does not alter daily limits.
+
+- Reserve the final daily wake for off-peak/ASAP so discretionary solar wake retries cannot consume both allowances. Retain the global two-wake and 150-command ceilings and all disabled/cable safety gates.
+- Roll daily counters forward during initialization, clear obsolete budget status on rollover, and show explicit off-peak standby status.
+- Expose the wake limit, last reserved wake reason/time, timezone and next local reset in status attributes and diagnostics. Add Zurich rollover, restart, failed-wake and scheduled-charge regression tests.
+
 ## 0.2.2 — 2026-10-18
 
 - Make both branding icons transparent, including the emblem's interior cutouts, for light and dark interfaces.

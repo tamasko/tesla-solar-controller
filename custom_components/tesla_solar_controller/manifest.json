@@ -5,6 +5,10 @@
     "@tamasko"
   ],
   "config_flow": true,
+  "dependencies": [
+    "frontend",
+    "websocket_api"
+  ],
   "documentation": "https://github.com/tamasko/tesla-solar-controller",
   "iot_class": "calculated",
   "issue_tracker": "https://github.com/tamasko/tesla-solar-controller/issues",
