@@ -65,7 +65,7 @@ Counters roll forward at HA-local midnight on the next evaluation (normally with
 ## Activity log
 
 The bottom of `dashboards/tesla.yaml` has a **Show activity log** button.
-After installing these changes and restarting HA, open it as a Home Assistant
+After updating to **v0.2.3** in HACS and restarting HA, open it as a Home Assistant
 administrator to view the saved log at `/tesla-solar-controller-log`. Use
 **Refresh log** for new entries or **Download log file** for the retained history.
 Apply the updated dashboard YAML to an existing storage-mode dashboard; installing
